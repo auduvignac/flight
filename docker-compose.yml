@@ -1,6 +1,6 @@
 services:
   spark-master:
-    image: ghcr.io/auduvignac/spark:latest
+    image: ghcr.io/auduvignac/flight:latest
     container_name: spark-master
     environment:
       - SPARK_MODE=master
@@ -11,10 +11,11 @@ services:
       - "7077:7077"  # Spark master service port
     volumes:
       - ./src/main/resources/log4j2-master.properties:/opt/spark/conf/log4j2.properties
+      - ./flight.cfg:/opt/config/flight.cfg
     restart: unless-stopped
 
   spark-worker:
-    image: ghcr.io/auduvignac/spark:latest
+    image: ghcr.io/auduvignac/flight:latest
     container_name: spark-worker
     environment:
       - SPARK_MODE=worker
@@ -23,12 +24,13 @@ services:
     volumes:
       - ./:/app
       - ./src/main/resources/log4j2-worker.properties:/opt/spark/conf/log4j2.properties
+      - ./flight.cfg:/opt/config/flight.cfg
     depends_on:
       - spark-master
     restart: unless-stopped
 
   spark-submit:
-    image: ghcr.io/auduvignac/spark:latest
+    image: ghcr.io/auduvignac/flight:latest
     container_name: spark-submit
     command: ["tail", "-f", "/dev/null"]
     environment:
@@ -38,6 +40,7 @@ services:
     volumes:
       - ./:/app
       - ./src/main/resources/log4j2-submit.properties:/opt/spark/conf/log4j2.properties
+      - ./flight.cfg:/opt/config/flight.cfg
     working_dir: /app
     depends_on:
       - spark-master

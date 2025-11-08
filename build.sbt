@@ -1,4 +1,4 @@
-name := "spark-template"
+name := "flight"
 
 version := "0.1"
 scalaVersion := "2.12.18"
@@ -9,4 +9,4 @@ libraryDependencies ++= Seq(
   "org.scalatest"    %% "scalatest"  % "3.2.18" % Test
 )
 
-Compile / mainClass := Some("Main")
+Compile / mainClass := Some("com.emiasd.flight.Main")

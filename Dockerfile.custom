@@ -2,17 +2,28 @@
 FROM ghcr.io/auduvignac/spark:latest
 
 LABEL maintainer="auduvignac <aurelienduvignac@hotmail.fr>"
-LABEL description="Image personnalisée pour un projet scala"
+LABEL description="Image personnalisée pour le projet flight"
 
 USER root
+
+# Installation des outils utiles et librairies Python (data analysis)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    bash time dos2unix vim python3 python3-pip && \
-    pip3 install pandas matplotlib seaborn && \
+    apt-get install -y --no-install-recommends bash vim python3 python3-pip && \
+    pip3 install --no-cache-dir pandas matplotlib seaborn && \
     rm -rf /var/lib/apt/lists/*
 
+# Dossier de travail
 WORKDIR /app
+
+# Copie du code de l'application Scala + scripts
 COPY . /app
+
+# --- Configuration Flight ---
+ENV FLIGHT_CONFIG_PATH=/opt/config/flight.cfg
+
+
+# Rendre les scripts exécutables
 RUN chmod +x /app/spark-submit.sh || true
 
+# Commande par défaut : garde le conteneur en vie (dev mode)
 CMD ["tail", "-f", "/dev/null"]
