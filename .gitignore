@@ -1,15 +1,48 @@
-# === IDE & outils de dev ===
-.idea/
+# =============================
+# SBT / Scala
+# =============================
+target/
+project/target/
+project/project/
 .metals/
-.vscode/
+.bloop/
+.idea/
+.ensime_cache/
+*.class
+*.jar
+*.log
+*.lock
+*.cache
 
-# === Fichiers temporaires ou logs ===
+# =============================
+# Fichiers système
+# =============================
+.DS_Store
+Thumbs.db
+
+# =============================
+# Docker / Python / Divers
+# =============================
+__pycache__/
+*.pyc
+*.pyo
+*.zip
+*.tar
+*.gz
+*.cfg
+.env
+
+# =============================
+# Fichiers temporaires ou logs
+# =============================
 *.bak
 *.log
 *.swp
 *.tmp
 
-# === SBT / Scala build ===
-*.jar
-target/
-project/
+# =============================
+# IDE & outils de dev
+# =============================
+.idea/
+.metals/
+.vscode/
