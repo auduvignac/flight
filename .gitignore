@@ -10,5 +10,6 @@
 *.tmp
 
 # === SBT / Scala build ===
+*.jar
 target/
 project/
