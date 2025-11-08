@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-set -e  # Stop on error
+set -e  # Stop on first error
 
 # =========================================================
-# Script de lancement du cluster Spark + job
+# Script de build + lancement du cluster Spark + job
 # =========================================================
 
 BUILD=false
@@ -20,47 +20,64 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+ASSEMBLY_JAR="target/scala-2.12/flight-assembly.jar"
+
 # =========================================================
-# Étape 0 : Compilation du projet Scala (si build)
+# Étape 0 : Compilation du projet Scala (si build, fat JAR)
 # =========================================================
-# Si l'utilisateur a demandé une compilation
 if [ "$BUILD" = true ]; then
-  echo "🔧 Compilation du projet Scala..."
+  echo "🔧 Compilation du projet Scala avec sbt-assembly..."
 
   # Vérifie que sbt est installé
   if ! command -v sbt &>/dev/null; then
-      echo "❌ Erreur : 'sbt' n'est pas installé sur ta machine hôte."
-      echo "   ➜ Installe-le avant de lancer ce script."
+      echo "❌ Erreur : 'sbt' n'est pas installé sur la machine hôte."
       exit 1
   fi
 
-  # Nettoie et recompile le projet
-  if sbt clean package; then
-      echo "✅ Compilation réussie."
+  # Nettoyage et création du jar assemblé
+  if sbt clean assembly; then
+      echo "✅ Compilation et assembly réussis."
   else
       echo "❌ Échec de la compilation Scala."
+      exit 1
+  fi
+
+  # Vérifie que le JAR assemblé existe
+  if [ ! -f "$ASSEMBLY_JAR" ]; then
+      echo "❌ Fichier $ASSEMBLY_JAR introuvable après l'assembly."
       exit 1
   fi
 fi
 
 # =========================================================
-# Étape 1 : Lancement du cluster Spark via Docker
+# Étape 1 : (Re)démarrage du cluster Spark via Docker
 # =========================================================
-echo "🧹 Stopping existing Spark cluster (if any)..."
+echo "🧹 Arrêt de tout cluster Spark existant..."
 docker rm -f spark-submit spark-worker spark-master >/dev/null 2>&1 || true
 
-echo "🚀 Starting Spark cluster..."
+echo "🚀 Démarrage du cluster Spark..."
 docker-compose up -d
 
-echo "⏳ Waiting for Spark master to be ready..."
+echo "⏳ Attente de la disponibilité du Spark Master..."
 sleep 5
 
-echo "⚙️  Preparing spark-submit.sh inside container..."
+# =========================================================
+# Étape 2 : Copie du JAR dans le conteneur spark-submit
+# =========================================================
+echo "📦 Copie du jar assemblé dans le conteneur..."
+docker cp "$ASSEMBLY_JAR" spark-submit:/app/flight-assembly.jar
+
+# =========================================================
+# Étape 3 : Préparation du script spark-submit.sh
+# =========================================================
+echo "⚙️  Préparation du script spark-submit.sh..."
 docker exec spark-submit dos2unix /app/spark-submit.sh >/dev/null 2>&1 || true
 docker exec spark-submit chmod +x /app/spark-submit.sh
 
-echo "🚀 Submitting Spark job..."
-
+# =========================================================
+# Étape 4 : Soumission du job Spark
+# =========================================================
+echo "🚀 Soumission du job Spark..."
 docker exec spark-submit /app/spark-submit.sh
 
 echo ""
@@ -68,4 +85,4 @@ echo "📜 Logs du conteneur spark-submit :"
 docker logs spark-submit
 
 echo ""
-echo "✅ Spark job completed successfully."
+echo "✅ Job Spark terminé avec succès."
