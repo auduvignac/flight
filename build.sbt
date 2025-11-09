@@ -4,20 +4,41 @@ version := "0.1"
 scalaVersion := "2.12.18"
 
 libraryDependencies ++= Seq(
+  // Spark runtime : fournis par le cluster (pas embarqués dans le JAR)
   "org.apache.spark" %% "spark-core" % "3.5.1" % "provided",
   "org.apache.spark" %% "spark-sql"  % "3.5.1" % "provided",
-  "com.typesafe"     %  "config"     % "1.4.3",
-  "org.scalatest"    %% "scalatest"  % "3.2.18" % Test
+
+  // Dépendance Delta intégrée dans ton assembly JAR
+  "io.delta" %% "delta-spark" % "3.2.1",
+
+  // Configuration Typesafe (application.conf)
+  "com.typesafe" % "config" % "1.4.3",
+
+  // Tests unitaires
+  "org.scalatest" %% "scalatest" % "3.2.18" % Test
 )
 
-// Point d'entrée principal
+// =======================================
+// Application
+// =======================================
 Compile / mainClass := Some("com.emiasd.flight.Main")
 
 // =======================================
-// Configuration sbt-assembly
+// Assembly configuration
 // =======================================
 assembly / mainClass := Some("com.emiasd.flight.Main")
 assembly / assemblyJarName := "flight-assembly.jar"
-
-// Force la sortie uniquement dans target/scala-2.12/
 assembly / assemblyOutputPath := baseDirectory.value / "target" / s"scala-${scalaBinaryVersion.value}" / "flight-assembly.jar"
+
+// =======================================
+// Scalafix + SemanticDB configuration
+// =======================================
+ThisBuild / semanticdbEnabled := true
+ThisBuild / semanticdbVersion := scalafixSemanticdb.revision
+
+ThisBuild / scalacOptions ++= Seq(
+  "-deprecation",
+  "-feature",
+  "-Ywarn-unused",
+  "-Ywarn-unused-import"
+)

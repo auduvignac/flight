@@ -3,9 +3,9 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
+import com.emiasd.flight.config.AppConfig
+import com.emiasd.flight.spark.{PathResolver, SparkBuilder}
 import org.apache.log4j.Logger
-import com.typesafe.config.{Config, ConfigFactory}
-import java.io.File
 
 /**
  * Point d'entrée principal pour exécuter l'ensemble du pipeline
@@ -19,41 +19,22 @@ object Main {
   // =======================
   // Point d'entrée principal
   // =======================
-  def main(args: Array[String]): Unit = {
-    logger.info("Starting application...")
+  def main(args: Array[String]): Unit =
+    try {
+      val logger = Logger.getLogger(getClass.getName)
+      logger.info("🚀 Starting application...")
 
-    // Charger la configuration depuis le fichier spécifié dans spark.app.config
-    val config: Config = loadConfig()
+      val cfg   = AppConfig.load()
+      val spark = SparkBuilder.build(cfg)
 
-    logger.info(s"Configuration loaded successfully")
+      val paths = PathResolver.resolve(cfg)
+      logger.info(s"✅ IO paths resolved: $paths")
 
-    // Exemple d'utilisation de la configuration
-    // val someValue = config.getString("path.to.property")
-    // val someInt = config.getInt("path.to.number")
-
-    logger.info("Application completed")
-  }
-
-  /**
-   * Charge la configuration depuis le fichier spécifié par spark.app.config
-   * ou utilise la configuration par défaut (application.conf)
-   */
-  private def loadConfig(): Config = {
-    val configPath = sys.props.get("spark.app.config")
-
-    configPath match {
-      case Some(path) =>
-        logger.info(s"Loading configuration from: $path")
-        val configFile = new File(path)
-        if (configFile.exists()) {
-          ConfigFactory.parseFile(configFile).resolve()
-        } else {
-          logger.warn(s"Config file not found at $path, using default configuration")
-          ConfigFactory.load()
-        }
-      case None =>
-        logger.info("No spark.app.config specified, using default configuration")
-        ConfigFactory.load()
+      logger.info("🏁 Application completed successfully.")
+      spark.stop()
+    } catch {
+      case e: Exception =>
+        logger.error("❌ Application failed", e)
+        throw e
     }
-  }
 }

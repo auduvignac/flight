@@ -21,10 +21,11 @@ else
   MAIN_CLASS="Main"
 fi
 
-# --- Define log configuration ---
-LOG_CONF=/opt/spark/conf/log4j2.properties
 # --- Configuration --------------
-CFG_FILE=${FLIGHT_CONFIG_PATH:-/opt/config/flight.cfg}
+# --- log configuration ---
+LOG_CONF=${LOG_CONFIG_PATH:-/opt/spark/conf/log4j.properties}
+# --- application configuration ---
+CFG_FILE=${APPLICATION_CONFIG_PATH:-/opt/config/application.conf}
 
 echo "=============================================="
 echo "🚀 Lancement de Spark"
@@ -39,7 +40,7 @@ echo "=============================================="
 spark-submit \
   --master spark://spark-master:7077 \
   --class "$MAIN_CLASS" \
-  --conf "spark.driver.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j2.configurationFile=$LOG_CONF" \
-  --conf "spark.executor.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j2.configurationFile=$LOG_CONF" \
+  --conf "spark.driver.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF" \
+  --conf "spark.executor.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF" \
   --conf "spark.app.config=$CFG_FILE" \
   "$JAR"

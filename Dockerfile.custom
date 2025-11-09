@@ -18,8 +18,9 @@ WORKDIR /app
 # Copie du code de l'application Scala + scripts
 COPY . /app
 
-# --- Configuration Flight ---
-ENV FLIGHT_CONFIG_PATH=/opt/config/flight.cfg
+# --- Configuration ---
+ENV LOG_CONFIG_PATH=/opt/spark/conf/log4j.properties
+ENV APPLICATION_CONFIG_PATH=/opt/config/application.conf
 
 
 # Rendre les scripts exécutables
