@@ -3,7 +3,8 @@ name: Scala CI
 on: [push, pull_request]
 
 jobs:
-  build:
+  scala-build:
+    name: Scala Build & Quality Checks
     runs-on: ubuntu-latest
 
     steps:
@@ -21,8 +22,31 @@ jobs:
         with:
           apps: sbt
 
-      - name: Compile
-        run: sbt compile
+      - name: Cache SBT and Ivy
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+      - name: Clean corrupted Ivy cache
+        run: find ~/.ivy2/cache -name "ivydata-*.properties" -delete || true
 
+      # --- Vérification du formattage du code (Scalafmt) ---
+      - name: Check Scalafmt formatting
+        run: sbt scalafmtCheckAll
+
+      # --- Vérification des règles de style (Scalafix) ---
+      - name: Check Scalafix rules
+        run: sbt "scalafix --check"
+
+      # --- Compilation stricte ---
+      - name: Compile project
+        run: sbt -warn compile
+
+      # --- Tests unitaires ---
       - name: Run tests
         run: sbt test
