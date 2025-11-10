@@ -1,30 +1,60 @@
-# Étendre l'image Spark officielle utilisée
-FROM ghcr.io/auduvignac/spark:latest
+# ============================================================
+# Build du JAR Scala avec SBT
+# ============================================================
+FROM openlaw/scala-builder AS builder
+
+LABEL stage="build-flight-assembly"
+WORKDIR /build
+
+# --- Copier les fichiers nécessaires pour le cache Docker ---
+COPY build.sbt /build/
+COPY project /build/project
+
+# --- Pré-télécharger les dépendances SBT (accélère les builds suivants) ---
+RUN sbt update
+
+# --- Copier le code source ---
+COPY src /build/src
+
+# --- Compilation + création du JAR assemblé ---
+RUN sbt clean assembly
+
+# ============================================================
+# Image finale Spark
+# ============================================================
+FROM ghcr.io/osekoo/spark:3.5
 
 LABEL maintainer="auduvignac <aurelienduvignac@hotmail.fr>"
-LABEL description="Image personnalisée pour le projet flight"
+LABEL description="Image Spark autonome pour le projet Flight"
 
 USER root
+WORKDIR /app
 
-# Installation des outils utiles et librairies Python (data analysis)
+# --- Installer Python et outils utiles (optionnel, pour analyse) ---
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends bash vim python3 python3-pip && \
-    pip3 install --no-cache-dir pandas matplotlib seaborn && \
+    apt-get install -y --no-install-recommends bash vim && \
     rm -rf /var/lib/apt/lists/*
 
 # Dossier de travail
 WORKDIR /app
 
-# Copie du code de l'application Scala + scripts
-COPY . /app
+# --- Copier le JAR généré depuis l’étape précédente ---
+COPY --from=builder /build/target/scala-2.12/flight-assembly.jar /app/
 
 # --- Configuration ---
+COPY src/main/resources/application.conf /opt/config/application.conf
+COPY src/main/resources/log4j2-submit.properties /opt/spark/conf/log4j2.properties
+
+# --- Script spark-submit ---
+COPY spark-submit.sh /app/
+
+# --- Définir les variables d’environnement ---
 ENV LOG_CONFIG_PATH=/opt/spark/conf/log4j2.properties
 ENV APPLICATION_CONFIG_PATH=/opt/config/application.conf
+ENV SPARK_MASTER_URL=spark://spark-master:7077
 
-
-# Rendre les scripts exécutables
+# --- Donner les droits d’exécution au script ---
 RUN chmod +x /app/spark-submit.sh || true
 
-# Commande par défaut : garde le conteneur en vie (dev mode)
+# --- Entrée par défaut ---
 CMD ["tail", "-f", "/dev/null"]
