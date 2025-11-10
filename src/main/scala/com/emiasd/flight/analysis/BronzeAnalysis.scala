@@ -1,7 +1,7 @@
 package com.emiasd.flight.analysis
 
 import org.apache.log4j.Logger
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 
@@ -40,7 +40,6 @@ object BronzeAnalysis {
 
   /** Analyse FLIGHTS Bronze + export CSV */
   def analyzeFlights(df: DataFrame, outDir: String): Unit = {
-    import df.sparkSession.implicits._
     logger.info("=== ANALYSE FLIGHTS BRONZE ===")
     logger.info(s"Rows = ${df.count}")
 

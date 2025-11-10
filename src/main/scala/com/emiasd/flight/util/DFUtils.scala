@@ -1,8 +1,8 @@
 // com/emiasd/flight/util/DFUtils.scala
 package com.emiasd.flight.util
 
-import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{Column, DataFrame}
 
 object DFUtils {
   def addYearMonth(tsCol: String): Seq[Column] = Seq(
@@ -15,7 +15,7 @@ object DFUtils {
     val hh   = substring(hhmm, 1, 2).cast("int")
     val mm   = substring(hhmm, 3, 2).cast("int")
 
-    when(hm.isNull, lit(null).cast("timestamp"))
+    when(hm.isNull, expr("CAST(NULL AS TIMESTAMP)"))
       .otherwise(
         make_timestamp(
           y.cast("int"),

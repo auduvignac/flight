@@ -1,7 +1,6 @@
 // com/emiasd/flight/io/Schemas.scala
 package com.emiasd.flight.io
 
-import org.apache.spark.sql.types._
 
 object Schemas {
   // Possibles schémas BTS et NCDC (restons permissifs, on lit en inferSchema côté Readers)

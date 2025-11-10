@@ -3,14 +3,15 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
-import org.apache.log4j.Logger
-import scala.util.{Failure, Success, Try}
-import com.emiasd.flight.config.AppConfig
-import com.emiasd.flight.spark.{PathResolver, SparkBuilder}
-import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
-import com.emiasd.flight.io.{Readers, Writers}
-import com.emiasd.flight.silver.{CleaningPlans, MappingWBAN, WeatherSlim}
 import com.emiasd.flight.analysis.BronzeAnalysis
+import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
+import com.emiasd.flight.config.AppConfig
+import com.emiasd.flight.io.Writers
+import com.emiasd.flight.silver.CleaningPlans
+import com.emiasd.flight.spark.{PathResolver, SparkBuilder}
+import org.apache.log4j.Logger
+
+import scala.util.{Failure, Success, Try}
 
 /**
  * Point d'entrée principal pour exécuter l'ensemble du pipeline
@@ -31,7 +32,6 @@ object Main {
 
       val cfg   = AppConfig.load()
       val spark = SparkBuilder.build(cfg)
-      import spark.implicits._
 
       val paths = PathResolver.resolve(cfg)
       logger.info(s"IO paths resolved: $paths")

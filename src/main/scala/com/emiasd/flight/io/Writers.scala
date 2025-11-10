@@ -3,6 +3,7 @@ package com.emiasd.flight.io
 
 import org.apache.log4j.Logger
 import org.apache.spark.sql.{DataFrame, SaveMode}
+
 import java.io.File
 
 object Writers {

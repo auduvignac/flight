@@ -1,11 +1,11 @@
 // com/emiasd/flight/bronze/WeatherBronze.scala
 package com.emiasd.flight.bronze
 
-import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.functions._
-import org.apache.log4j.Logger
 import com.emiasd.flight.io.Readers
 import com.emiasd.flight.io.Schemas.weatherKeep
+import org.apache.log4j.Logger
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object WeatherBronze {
   def readAndEnrich(spark: SparkSession, inputs: Seq[String]): DataFrame = {
