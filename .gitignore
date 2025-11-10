@@ -5,6 +5,7 @@ target/
 project/target/
 project/project/
 data/
+delta/
 .metals/
 .bloop/
 .idea/
