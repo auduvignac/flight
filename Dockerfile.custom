@@ -19,7 +19,7 @@ WORKDIR /app
 COPY . /app
 
 # --- Configuration ---
-ENV LOG_CONFIG_PATH=/opt/spark/conf/log4j.properties
+ENV LOG_CONFIG_PATH=/opt/spark/conf/log4j2.properties
 ENV APPLICATION_CONFIG_PATH=/opt/config/application.conf
 
 

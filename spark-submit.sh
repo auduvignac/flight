@@ -23,7 +23,7 @@ fi
 
 # --- Configuration --------------
 # --- log configuration ---
-LOG_CONF=${LOG_CONFIG_PATH:-/opt/spark/conf/log4j.properties}
+LOG_CONF=${LOG_CONFIG_PATH:-/opt/spark/conf/log4j2.properties}
 # --- application configuration ---
 CFG_FILE=${APPLICATION_CONFIG_PATH:-/opt/config/application.conf}
 

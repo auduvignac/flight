@@ -10,7 +10,7 @@ services:
       - "8080:8080"  # Spark UI (master)
       - "7077:7077"  # Spark master service port
     volumes:
-      - ./src/main/resources/log4j-master.properties:/opt/spark/conf/log4j.properties
+      - ./src/main/resources/log4j2-master.properties:/opt/spark/conf/log4j2.properties
       - ./src/main/resources/application.conf:/opt/config/application.conf
     restart: unless-stopped
 
@@ -23,7 +23,7 @@ services:
       - ROLE=WORKER
     volumes:
       - ./:/app
-      - ./src/main/resources/log4j-worker.properties:/opt/spark/conf/log4j.properties
+      - ./src/main/resources/log4j2-worker.properties:/opt/spark/conf/log4j2.properties
       - ./src/main/resources/application.conf:/opt/config/application.conf
     depends_on:
       - spark-master
@@ -39,7 +39,7 @@ services:
       - ROLE=SUBMIT
     volumes:
       - ./:/app
-      - ./src/main/resources/log4j-submit.properties:/opt/spark/conf/log4j.properties
+      - ./src/main/resources/log4j2-submit.properties:/opt/spark/conf/log4j2.properties
       - ./src/main/resources/application.conf:/opt/config/application.conf
     working_dir: /app
     depends_on:
