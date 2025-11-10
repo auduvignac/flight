@@ -5,20 +5,13 @@ set -e
 # 🚀 Spark Submit Script (Template compatible)
 # ==============================================
 
-# --- Auto-detect last built JAR ---
-JAR=$(find target/scala-* -name "*.jar" | sort -r | head -n 1)
-if [ -z "$JAR" ]; then
-  echo "❌ Aucun JAR trouvé. Exécutez d'abord : sbt clean package"
-  exit 1
-fi
+# --- JAR location (cf. run-app.sh) ---
+JAR="/app/flight-assembly.jar"
+MAIN_CLASS="com.emiasd.flight.Main"
 
-# --- Detect package name from Main.scala ---
-PACKAGE_PATH=$(find src/main/scala -type f -name "Main.scala" | head -n 1)
-if grep -q '^package ' "$PACKAGE_PATH"; then
-  PACKAGE=$(grep '^package ' "$PACKAGE_PATH" | awk '{print $2}')
-  MAIN_CLASS="$PACKAGE.Main"
-else
-  MAIN_CLASS="Main"
+if [ ! -f "$JAR" ]; then
+  echo "❌ Fichier JAR introuvable à l'emplacement $JAR"
+  exit 1
 fi
 
 # --- Configuration --------------
