@@ -88,9 +88,14 @@ object Main {
       BronzeAnalysis.analyzeWeather(weatherBronze, qaOutDir)
 
       // === SILVER ===
-      val flightsPlan = CleaningPlans.deriveFlightsPlan(flightsBronze)
+      val flightsPlan   = CleaningPlans.deriveFlightsPlan(flightsBronze)
       val flightsSilver = CleaningPlans.cleanFlights(flightsBronze, flightsPlan)
-      Writers.writeDelta(flightsSilver.coalesce(2), paths.silverFlights, Seq("year","month"), overwriteSchema = true)
+      Writers.writeDelta(
+        flightsSilver.coalesce(2),
+        paths.silverFlights,
+        Seq("year", "month"),
+        overwriteSchema = true
+      )
 
       logger.info("Application terminée avec succès.")
       spark.stop()
