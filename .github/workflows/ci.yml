@@ -1,0 +1,100 @@
+name: CI/CD - Flight Project
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # ===========================
+  # Étape 1 — Build & Tests
+  # ===========================
+  scala-build:
+    name: Scala Build & Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Setup SBT
+        uses: coursier/setup-action@v1
+        with:
+          apps: sbt
+
+      - name: Cache SBT and Ivy
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ivy2/cache
+            ~/.sbt
+            ~/.cache/coursier
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+      - name: Clean corrupted Ivy cache
+        run: find ~/.ivy2/cache -name "ivydata-*.properties" -delete || true
+
+      # Vérification du style de code
+      - name: Check Scalafmt formatting
+        run: sbt scalafmtCheckAll
+
+      # Vérification des règles Scalafix
+      - name: Check Scalafix rules
+        run: sbt "scalafix --check"
+
+      # Compilation stricte
+      - name: Compile project
+        run: sbt -warn compile
+
+      # Tests unitaires
+      - name: Run tests
+        run: sbt test
+
+      # Génération du JAR pour l'étape Docker
+      - name: Build JAR
+        run: sbt clean assembly
+
+      # Upload du JAR comme artefact
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flight-assembly
+          path: target/scala-2.12/flight-assembly.jar
+
+  # ===========================
+  # Étape 2 — Build Docker
+  # ===========================
+  docker-build:
+    name: Build and Push Docker Image
+    needs: scala-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Récupérer le JAR depuis l'étape précédente
+      - name: Download built JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: flight-assembly
+          path: .
+
+      - name: Log in to GHCR
+        run: echo ${{ secrets.CR_PAT }} | docker login ghcr.io -u auduvignac --password-stdin
+
+      - name: Build and Push Docker image
+        run: |
+          IMAGE_NAME=ghcr.io/auduvignac/flight:latest
+          docker build -f Dockerfile.custom -t $IMAGE_NAME .
+          docker push $IMAGE_NAME
