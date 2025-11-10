@@ -3,13 +3,15 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
-import com.emiasd.flight.analysis.BronzeAnalysis
+import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis}
 import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
 import com.emiasd.flight.config.AppConfig
-import com.emiasd.flight.io.Writers
-import com.emiasd.flight.silver.CleaningPlans
+import com.emiasd.flight.io.{Readers, Writers}
+import com.emiasd.flight.join.{BuildJT, FlightsEnriched}
+import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{PathResolver, SparkBuilder}
 import org.apache.log4j.Logger
+import org.apache.spark.sql.functions._
 
 import scala.util.{Failure, Success, Try}
 
@@ -96,6 +98,98 @@ object Main {
         Seq("year", "month"),
         overwriteSchema = true
       )
+
+      // === ANALYSE SILVER ===
+      val silverQaDirFile = new java.io.File("analysis/silver")
+      val silverQaDir = Try {
+        if (!silverQaDirFile.exists()) {
+          if (silverQaDirFile.mkdirs())
+            logger.info(s"Répertoire créé : ${silverQaDirFile.getAbsolutePath}")
+          else
+            logger.warn(s"Impossible de créer le répertoire : ${silverQaDirFile.getAbsolutePath}")
+        }
+        silverQaDirFile.getAbsolutePath
+      } match {
+        case Success(path) => path
+        case Failure(e) =>
+          logger.error(
+            s"Erreur lors de la création du répertoire ${silverQaDirFile.getAbsolutePath}",
+            e
+          )
+          throw e
+      }
+
+      // Recharge ou réutilise flightsCleaned
+      val flightsSilverCheck = Readers.readDelta(spark, paths.silverFlights)
+      SilverAnalysis.analyzeFlights(flightsSilverCheck, silverQaDir)
+
+      // Météo → UTC par offset fixe d'heures (pas de DST)
+      val weatherSlim = WeatherSlim.enrichWithUTC(spark, weatherBronze, paths.mapping)
+      Writers.writeDelta(
+        weatherSlim.coalesce(2),
+        paths.silverWeatherFiltered,
+        Seq("year", "month"),
+        overwriteSchema = true
+      )
+
+      // === JOIN → JT ===
+      val flightsPrepared = Readers.readDelta(spark, paths.silverFlights)
+      val weatherSlimDF   = Readers.readDelta(spark, paths.silverWeatherFiltered)
+      val flightsEnriched = FlightsEnriched.build(flightsPrepared)
+      val jtOut           = BuildJT.buildJT(spark, flightsEnriched, weatherSlimDF, cfg.thMinutes)
+
+      Writers.writeDelta(jtOut, paths.goldJT, Seq("year", "month"), overwriteSchema = true)
+
+      logger.info(s"JT écrit → ${paths.goldJT}")
+      logger.info("Lignes JT: " + Readers.readDelta(spark, paths.goldJT).count())
+
+      // === Sanity Checks ===
+
+      import spark.implicits._
+
+      val jtCheck = Readers.readDelta(spark, paths.goldJT)
+
+      // Nombre de lignes
+      logger.info("JT rows = " + jtCheck.count)
+
+      // Unicité de la clef vol
+      logger.info("JT distinct flight_key = " + jtCheck.select($"F.flight_key").distinct.count)
+
+      // Présence des timestamps (alternative robuste sur champs imbriqués)
+      jtCheck
+        .agg(
+          sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0)).as("null_dep"),
+          sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0)).as("null_arr"),
+          count(lit(1)).as("total")
+        )
+        .show(false)
+
+      jtCheck.printSchema()
+
+      // Part des vols avec observations météo Wo / Wd
+      val withFlags =
+        jtCheck.withColumn("hasWo", size($"Wo") > 0).withColumn("hasWd", size($"Wd") > 0)
+      withFlags
+        .agg(
+          avg(when($"hasWo", lit(1)).otherwise(lit(0))).as("pct_with_Wo"),
+          avg(when($"hasWd", lit(1)).otherwise(lit(0))).as("pct_with_Wd")
+        )
+        .show(false)
+
+      // Aperçu visuel (top 10)
+      jtCheck
+        .select(
+          $"F.carrier",
+          $"F.flnum",
+          $"F.date",
+          $"F.origin_airport_id",
+          $"F.dest_airport_id",
+          $"C",
+          size($"Wo").as("nWo"),
+          size($"Wd").as("nWd")
+        )
+        .orderBy(desc("nWo"))
+        .show(10, false)
 
       logger.info("Application terminée avec succès.")
       spark.stop()
