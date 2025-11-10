@@ -1,7 +1,6 @@
 // com/emiasd/flight/io/Schemas.scala
 package com.emiasd.flight.io
 
-
 object Schemas {
   // Possibles schémas BTS et NCDC (restons permissifs, on lit en inferSchema côté Readers)
   val flightsSelected: Seq[String] = Seq(
