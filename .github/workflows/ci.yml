@@ -133,8 +133,7 @@ jobs:
       - name: Run Bronze stage
         run: |
           chmod +x run-app.sh
-          ./run-app.sh --reset
-          ./run-app.sh --stage=bronze
+          ./run-app.sh --reset --stage=bronze
 
       - name: Upload Bronze analysis
         uses: actions/upload-artifact@v4
