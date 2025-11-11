@@ -100,26 +100,24 @@ jobs:
           docker push $IMAGE_NAME
 
   # ============================================
-  # Étape 3 — Run Bronze
+  # Étape 3 — Bronze Stage
   # ============================================
   bronze:
     name: 🟤 Bronze - Ingestion & Enrichment
     needs: [scala-build, docker-build]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 📦 Cache dataset et delta
-      - name: Cache data et delta directories
+      # 📦 Cache dataset (réutilisable par Silver & Gold)
+      - name: Cache dataset
         uses: actions/cache@v4
         with:
-          path: |
-            data
-            delta
-          key: flight-cache-v1
+          path: data
+          key: dataset-v1
 
       - name: Setup Docker
         uses: docker/setup-buildx-action@v3
@@ -141,6 +139,13 @@ jobs:
           name: analysis-bronze
           path: analysis/
 
+      # Sauvegarde du répertoire Delta produit par Bronze
+      - name: Upload Delta Bronze
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-bronze
+          path: delta/
+
   # ============================================
   # Étape 4 — Silver Stage
   # ============================================
@@ -148,20 +153,25 @@ jobs:
     name: ⚪ Silver - Cleaning & Standardization
     needs: bronze
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 📦 Restore dataset and delta cache
-      - name: Restore data & delta from cache
+      # 📦 Restaure le dataset depuis le cache
+      - name: Restore dataset from cache
         uses: actions/cache@v4
         with:
-          path: |
-            data
-            delta
-          key: flight-cache-v1
+          path: data
+          key: dataset-v1
+
+      # Récupère le répertoire Delta du Bronze
+      - name: Download Delta Bronze
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-bronze
+          path: delta/
 
       - name: Setup Docker
         uses: docker/setup-buildx-action@v3
@@ -183,6 +193,13 @@ jobs:
           name: analysis-silver
           path: analysis/
 
+      # Sauvegarde du répertoire Delta produit par Silver
+      - name: Upload Delta Silver
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-silver
+          path: delta/
+
   # ============================================
   # Étape 5 — Gold Stage
   # ============================================
@@ -190,20 +207,25 @@ jobs:
     name: 🟡 Gold - Final Join & QA
     needs: silver
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 📦 Restore dataset and delta from cache
-      - name: Restore data & delta from cache
+      # 📦 Restaure le dataset depuis le cache
+      - name: Restore dataset from cache
         uses: actions/cache@v4
         with:
-          path: |
-            data
-            delta
-          key: flight-cache-v1
+          path: data
+          key: dataset-v1
+
+      # Récupère le Delta produit par Silver
+      - name: Download Delta Silver
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-silver
+          path: delta/
 
       - name: Setup Docker
         uses: docker/setup-buildx-action@v3
