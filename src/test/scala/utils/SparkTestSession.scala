@@ -4,8 +4,8 @@ import org.apache.spark.sql.SparkSession
 import org.scalatest.Suite
 
 /**
- * SparkSession unique, partagé par tous les tests. Il n'est pas arrêté à la fin de chaque suite (la
- * JVM s'en charge).
+ * SparkSession unique, partagé par tous les tests. Il n'est pas arrêté à la fin
+ * de chaque suite (la JVM s'en charge).
  */
 trait SparkTestSession { this: Suite =>
 
