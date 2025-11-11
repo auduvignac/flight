@@ -112,12 +112,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 📦 Cache dataset pour réutilisation ultérieure
-      - name: Cache dataset
+      # 📦 Cache dataset et delta
+      - name: Cache data et delta directories
         uses: actions/cache@v4
         with:
-          path: data
-          key: dataset-v1
+          path: |
+            data
+            delta
+          key: flight-cache-v1
 
       - name: Setup Docker
         uses: docker/setup-buildx-action@v3
@@ -153,12 +155,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 📦 Restaure le dataset depuis le cache
-      - name: Restore dataset from cache
+      # 📦 Restore dataset and delta cache
+      - name: Restore data & delta from cache
         uses: actions/cache@v4
         with:
-          path: data
-          key: dataset-v1
+          path: |
+            data
+            delta
+          key: flight-cache-v1
 
       - name: Setup Docker
         uses: docker/setup-buildx-action@v3
@@ -193,12 +197,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 📦 Restaure le dataset depuis le cache
-      - name: Restore dataset from cache
+      # 📦 Restore dataset and delta from cache
+      - name: Restore data & delta from cache
         uses: actions/cache@v4
         with:
-          path: data
-          key: dataset-v1
+          path: |
+            data
+            delta
+          key: flight-cache-v1
 
       - name: Setup Docker
         uses: docker/setup-buildx-action@v3
