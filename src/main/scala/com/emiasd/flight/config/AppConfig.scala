@@ -79,15 +79,19 @@ object AppConfig {
       deltaSilverBase = app.getString("output.delta.base.silver"),
       deltaGoldBase = app.getString("output.delta.base.gold"),
       // Hadoop outputs
-      hDeltaBronzeBase = app.getConfig("hadoop").getString("output.delta.base.bronze"),
-      hDeltaSilverBase = app.getConfig("hadoop").getString("output.delta.base.silver"),
-      hDeltaGoldBase = app.getConfig("hadoop").getString("output.delta.base.gold"),
+      hDeltaBronzeBase =
+        app.getConfig("hadoop").getString("output.delta.base.bronze"),
+      hDeltaSilverBase =
+        app.getConfig("hadoop").getString("output.delta.base.silver"),
+      hDeltaGoldBase =
+        app.getConfig("hadoop").getString("output.delta.base.gold"),
       // params
       monthsF = getSeq(app, "input.months_f"),
       monthsW = getSeq(app, "input.months_w"),
       thMinutes = app.getConfig("params").getInt("thMinutes"),
       // garde cette ligne SI ta conf est sous la forme "missingness.threshold = 0.60"
-      missingnessThreshold = app.getConfig("params").getDouble("missingness.threshold"),
+      missingnessThreshold =
+        app.getConfig("params").getDouble("missingness.threshold"),
       // spark
       sparkMaster = spark.getString("master"),
       sparkAppName = spark.getString("appName"),

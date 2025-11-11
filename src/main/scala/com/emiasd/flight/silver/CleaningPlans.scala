@@ -9,11 +9,14 @@ object CleaningPlans {
 
   val logger: Logger = Logger.getLogger(getClass.getName)
 
-  def deriveFlightsPlan(df: DataFrame): DataFrame = df // hook pour logique future
+  def deriveFlightsPlan(df: DataFrame): DataFrame =
+    df // hook pour logique future
 
   def cleanFlights(df: DataFrame): DataFrame = {
 
-    logger.info("=== [CLEAN FLIGHTS] Préparation et nettoyage des données de vols ===")
+    logger.info(
+      "=== [CLEAN FLIGHTS] Préparation et nettoyage des données de vols ==="
+    )
 
     // -----------------------------
     // Définition du coefficient alphaByYearCol
@@ -35,13 +38,18 @@ object CleaningPlans {
     // -----------------------------
     logger.info("Filtrage des vols annulés ou déviés")
     val filtered = df.filter(
-      coalesce(col("CANCELLED"), lit(0)) === 0 && coalesce(col("DIVERTED"), lit(0)) === 0
+      coalesce(col("CANCELLED"), lit(0)) === 0 && coalesce(
+        col("DIVERTED"),
+        lit(0)
+      ) === 0
     )
 
     // -----------------------------
     // Gestion des valeurs manquantes
     // -----------------------------
-    logger.info("Gestion des valeurs manquantes pour WEATHER_DELAY et NAS_DELAY")
+    logger.info(
+      "Gestion des valeurs manquantes pour WEATHER_DELAY et NAS_DELAY"
+    )
     val cleaned = filtered
       .withColumn("WEATHER_DELAY", coalesce(col("WEATHER_DELAY"), lit(0.0)))
       .withColumn("NAS_DELAY", coalesce(col("NAS_DELAY"), lit(0.0)))
@@ -49,18 +57,25 @@ object CleaningPlans {
     // -----------------------------
     // Pondération NAS et calcul du total weather delay
     // -----------------------------
-    logger.info("Étape de pondération des retards dus au NAS selon l'année du vol")
+    logger.info(
+      "Étape de pondération des retards dus au NAS selon l'année du vol"
+    )
     val enriched = cleaned
       .withColumn(
         "alpha_nas",
         coalesce(element_at(alphaByYearCol, col("year").cast("int")), lit(0.58))
       )
-      .withColumn("total_weather_delay", col("WEATHER_DELAY") + col("alpha_nas") * col("NAS_DELAY"))
+      .withColumn(
+        "total_weather_delay",
+        col("WEATHER_DELAY") + col("alpha_nas") * col("NAS_DELAY")
+      )
 
     // -----------------------------
     // Création des étiquettes de retard météo
     // -----------------------------
-    logger.info("Création des labels binaires de retard météo (15, 30, 45, 60, 90 min)")
+    logger.info(
+      "Création des labels binaires de retard météo (15, 30, 45, 60, 90 min)"
+    )
     val labeled = enriched
       .withColumn("label_wx_15", (col("total_weather_delay") >= 15).cast("int"))
       .withColumn("label_wx_30", (col("total_weather_delay") >= 30).cast("int"))
@@ -96,7 +111,9 @@ object CleaningPlans {
       col("label_wx_90")
     )
 
-    logger.info(s"Nettoyage terminé — ${result.count()} lignes prêtes pour la phase suivante.")
+    logger.info(
+      s"Nettoyage terminé — ${result.count()} lignes prêtes pour la phase suivante."
+    )
     result
   }
 

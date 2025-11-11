@@ -33,7 +33,9 @@ object DFUtils {
     if (df.columns.contains(name)) col(name) else default
 
   def addMinutes(ts: Column, minutes: Column): Column =
-    to_timestamp(from_unixtime(unix_timestamp(ts) + (minutes.cast("long") * 60L)))
+    to_timestamp(
+      from_unixtime(unix_timestamp(ts) + (minutes.cast("long") * 60L))
+    )
 
   // FL_DATE (date) + HHmm (int/string) -> timestamp local (origine)
   def parseLocal(dateCol: Column, hhmmCol: Column): Column = {

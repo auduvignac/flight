@@ -14,7 +14,8 @@ object WeatherBronze {
 
     logger.info(s"Lecture du fichier : $inputs")
 
-    val raw = Readers.readTxt(spark, inputs, sep = ",", header = true, infer = true)
+    val raw =
+      Readers.readTxt(spark, inputs, sep = ",", header = true, infer = true)
 
     val df = raw
       .select(weatherKeep.map(c => col(c)): _*)
@@ -23,7 +24,10 @@ object WeatherBronze {
       .withColumn("Date", regexp_replace(col("Date"), "[/]", "-"))
       .withColumn(
         "obs_local_naive",
-        to_timestamp(concat_ws(" ", col("Date"), lpad(col("Time"), 4, "0")), "yyyy-MM-dd HHmm")
+        to_timestamp(
+          concat_ws(" ", col("Date"), lpad(col("Time"), 4, "0")),
+          "yyyy-MM-dd HHmm"
+        )
       )
       // Casts de base (standardisation lors de la phase Silver)
       .withColumn("Visibility", col("Visibility").cast("double"))

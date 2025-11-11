@@ -68,7 +68,9 @@ object SilverAnalysis {
       .orderBy(desc("nulls"))
   }
 
-  /** Cardinalités approximatives sur quelques colonnes-clés présentes en Silver. */
+  /**
+   * Cardinalités approximatives sur quelques colonnes-clés présentes en Silver.
+   */
   private def uniquesReport(df: DataFrame): DataFrame = {
     val spark = df.sparkSession
     import spark.implicits._
@@ -85,7 +87,9 @@ object SilverAnalysis {
       Seq(("__no_columns__", 0L)).toDF("column", "approx_distinct")
     } else {
       // On évite df.agg(...) : on utilise select(...) puis collect()
-      val sel = df.select(candidates.map(c => approx_count_distinct(col(c)).alias(c)): _*)
+      val sel = df.select(
+        candidates.map(c => approx_count_distinct(col(c)).alias(c)): _*
+      )
       val row = sel.collect()(0) // une seule ligne avec N colonnes
       val out = candidates.map { c =>
         // getLong si la fonction renvoie Long, sinon fallback en Int
@@ -94,7 +98,10 @@ object SilverAnalysis {
             row.schema(c).dataType match {
               case LongType    => row.getLong(row.fieldIndex(c))
               case IntegerType => row.getInt(row.fieldIndex(c)).toLong
-              case _ => Option(row.get(row.fieldIndex(c))).map(_.toString.toLong).getOrElse(0L)
+              case _ =>
+                Option(row.get(row.fieldIndex(c)))
+                  .map(_.toString.toLong)
+                  .getOrElse(0L)
             }
           } else 0L
         (c, v)
@@ -109,8 +116,9 @@ object SilverAnalysis {
     import spark.implicits._
 
     val q = Array(0.5, 0.9, 0.95, 0.99)
-    val cols = Seq("ARR_DELAY_NEW", "WEATHER_DELAY", "NAS_DELAY", "total_weather_delay")
-      .filter(df.columns.contains)
+    val cols =
+      Seq("ARR_DELAY_NEW", "WEATHER_DELAY", "NAS_DELAY", "total_weather_delay")
+        .filter(df.columns.contains)
 
     val rows = cols.map { c =>
       val qs = df.stat.approxQuantile(c, q, 0.01)
@@ -123,23 +131,33 @@ object SilverAnalysis {
 
   /**
    * Règle métier :
-   *   - if (WEATHER_DELAY == 0 && NAS_DELAY == 0) then ARR_DELAY_NEW < 15 (OK sinon VIOL)
-   *   - if (WEATHER_DELAY > 0 || NAS_DELAY > 0) then ARR_DELAY_NEW >= 15 (OK sinon VIOL) S’applique
-   *     en Silver (après cast / nettoyage et filtrage des vols annulés/divertis).
+   *   - if (WEATHER_DELAY == 0 && NAS_DELAY == 0) then ARR_DELAY_NEW < 15 (OK
+   *     sinon VIOL)
+   *   - if (WEATHER_DELAY > 0 || NAS_DELAY > 0) then ARR_DELAY_NEW >= 15 (OK
+   *     sinon VIOL) S’applique en Silver (après cast / nettoyage et filtrage
+   *     des vols annulés/divertis).
    */
   private def delayRules(df: DataFrame): DataFrame = {
     val spark = df.sparkSession
     import spark.implicits._
 
     val bothZero_arrLT15 =
-      df.filter($"WEATHER_DELAY" === 0.0 && $"NAS_DELAY" === 0.0 && $"ARR_DELAY_NEW" < 15).count
+      df.filter(
+        $"WEATHER_DELAY" === 0.0 && $"NAS_DELAY" === 0.0 && $"ARR_DELAY_NEW" < 15
+      ).count
     val bothZero_arrGE15_viols =
-      df.filter($"WEATHER_DELAY" === 0.0 && $"NAS_DELAY" === 0.0 && $"ARR_DELAY_NEW" >= 15).count
+      df.filter(
+        $"WEATHER_DELAY" === 0.0 && $"NAS_DELAY" === 0.0 && $"ARR_DELAY_NEW" >= 15
+      ).count
 
     val nonZero_arrGE15 =
-      df.filter(($"WEATHER_DELAY" =!= 0.0 || $"NAS_DELAY" =!= 0.0) && $"ARR_DELAY_NEW" >= 15).count
+      df.filter(
+        ($"WEATHER_DELAY" =!= 0.0 || $"NAS_DELAY" =!= 0.0) && $"ARR_DELAY_NEW" >= 15
+      ).count
     val nonZero_arrLT15_viols =
-      df.filter(($"WEATHER_DELAY" =!= 0.0 || $"NAS_DELAY" =!= 0.0) && $"ARR_DELAY_NEW" < 15).count
+      df.filter(
+        ($"WEATHER_DELAY" =!= 0.0 || $"NAS_DELAY" =!= 0.0) && $"ARR_DELAY_NEW" < 15
+      ).count
 
     val total = df.count()
 
@@ -169,13 +187,17 @@ object SilverAnalysis {
     ).filter(df.columns.contains).map(col)
 
     val v1 = df
-      .filter($"WEATHER_DELAY" === 0.0 && $"NAS_DELAY" === 0.0 && $"ARR_DELAY_NEW" >= 15)
+      .filter(
+        $"WEATHER_DELAY" === 0.0 && $"NAS_DELAY" === 0.0 && $"ARR_DELAY_NEW" >= 15
+      )
       .select(baseSelect: _*)
       .withColumn("rule", lit("bothZero->arr>=15"))
       .limit(50)
 
     val v2 = df
-      .filter(($"WEATHER_DELAY" =!= 0.0 || $"NAS_DELAY" =!= 0.0) && $"ARR_DELAY_NEW" < 15)
+      .filter(
+        ($"WEATHER_DELAY" =!= 0.0 || $"NAS_DELAY" =!= 0.0) && $"ARR_DELAY_NEW" < 15
+      )
       .select(baseSelect: _*)
       .withColumn("rule", lit("nonZero->arr<15"))
       .limit(50)

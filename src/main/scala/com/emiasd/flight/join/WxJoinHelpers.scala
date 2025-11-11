@@ -9,12 +9,17 @@ object WxJoinHelpers {
 
   /** Structure météo robuste (null si absent), prête pour Wo/Wd */
   def buildWxStruct(df: DataFrame, prefix: String): Column = {
-    def nullExpr = expr("CAST(NULL AS DOUBLE)") // helper pour éviter la répétition
+    def nullExpr = expr(
+      "CAST(NULL AS DOUBLE)"
+    ) // helper pour éviter la répétition
 
     struct(
-      safeCol(df, "obs_utc", expr("CAST(NULL AS TIMESTAMP)")).as(s"${prefix}_ts"),
-      safeCol(df, "SkyCondition", expr("CAST(NULL AS STRING)")).as(s"${prefix}_sky"),
-      safeCol(df, "WeatherType", expr("CAST(NULL AS STRING)")).as(s"${prefix}_wxType"),
+      safeCol(df, "obs_utc", expr("CAST(NULL AS TIMESTAMP)"))
+        .as(s"${prefix}_ts"),
+      safeCol(df, "SkyCondition", expr("CAST(NULL AS STRING)"))
+        .as(s"${prefix}_sky"),
+      safeCol(df, "WeatherType", expr("CAST(NULL AS STRING)"))
+        .as(s"${prefix}_wxType"),
       safeCol(df, "Visibility", nullExpr).as(s"${prefix}_vis"),
       safeCol(df, "TempC", nullExpr).as(s"${prefix}_tempC"),
       safeCol(df, "DewPointC", nullExpr).as(s"${prefix}_dewC"),
@@ -29,5 +34,6 @@ object WxJoinHelpers {
   }
 
   /** Teste la présence d'une colonne dans un DataFrame. */
-  def has(df: DataFrame, colName: String): Boolean = df.columns.contains(colName)
+  def has(df: DataFrame, colName: String): Boolean =
+    df.columns.contains(colName)
 }

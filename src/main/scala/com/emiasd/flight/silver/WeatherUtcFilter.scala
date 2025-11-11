@@ -17,7 +17,10 @@ object WeatherUtcFilter {
       .filter(col("airport_id").isNotNull)
       .withColumn(
         "obs_utc",
-        to_utc_timestamp(col("obs_local_naive"), coalesce(col("timezone"), lit("UTC")))
+        to_utc_timestamp(
+          col("obs_local_naive"),
+          coalesce(col("timezone"), lit("UTC"))
+        )
       )
 
     // 2) Restreindre aux aéroports présents dans les vols
@@ -27,7 +30,11 @@ object WeatherUtcFilter {
       .distinct()
 
     val filtered = wWithAirport
-      .join(airportSet, wWithAirport("airport_id") === airportSet("aoi"), "inner")
+      .join(
+        airportSet,
+        wWithAirport("airport_id") === airportSet("aoi"),
+        "inner"
+      )
       .drop("aoi")
 
     // 3) Garantir year/month DÉRIVÉS DE obs_utc (pour le partitionnement Delta)

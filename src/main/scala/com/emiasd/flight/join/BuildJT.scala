@@ -66,8 +66,14 @@ object BuildJT {
 
     val f = flightsEnriched
       .filter(col("dep_ts_utc").isNotNull && col("arr_ts_utc").isNotNull)
-      .withColumn("dep_minus_12h", col("dep_ts_utc") - expr("INTERVAL 12 HOURS"))
-      .withColumn("arr_minus_12h", col("arr_ts_utc") - expr("INTERVAL 12 HOURS"))
+      .withColumn(
+        "dep_minus_12h",
+        col("dep_ts_utc") - expr("INTERVAL 12 HOURS")
+      )
+      .withColumn(
+        "arr_minus_12h",
+        col("arr_ts_utc") - expr("INTERVAL 12 HOURS")
+      )
 
     // Join météo origine (0..12h avant dep)
     val jO = f
@@ -142,7 +148,10 @@ object BuildJT {
       )
 
     val withC =
-      aggD.withColumn("C", when(col("ARR_DELAY_NEW") >= thMinutes, lit(1)).otherwise(lit(0)))
+      aggD.withColumn(
+        "C",
+        when(col("ARR_DELAY_NEW") >= thMinutes, lit(1)).otherwise(lit(0))
+      )
 
     // F struct minimal (tu pourras enrichir)
     val withF = withC.select(

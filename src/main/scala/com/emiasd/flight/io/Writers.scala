@@ -23,7 +23,9 @@ object Writers {
       if (created)
         logger.info(s"Répertoire créé : ${dir.getAbsolutePath}")
       else
-        logger.warn(s"Impossible de créer le répertoire : ${dir.getAbsolutePath}")
+        logger.warn(
+          s"Impossible de créer le répertoire : ${dir.getAbsolutePath}"
+        )
     }
 
     // === Écriture Delta ===

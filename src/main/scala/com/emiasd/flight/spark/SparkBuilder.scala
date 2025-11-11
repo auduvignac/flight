@@ -19,6 +19,8 @@ object SparkBuilder {
       case "yarn" => builder
       case m      => builder.master(m)
     }
-    cfg.sparkConfs.foldLeft(withMaster) { case (b, (k, v)) => b.config(k, v) }.getOrCreate()
+    cfg.sparkConfs
+      .foldLeft(withMaster) { case (b, (k, v)) => b.config(k, v) }
+      .getOrCreate()
   }
 }

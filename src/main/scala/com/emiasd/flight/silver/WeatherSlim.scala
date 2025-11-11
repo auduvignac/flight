@@ -27,21 +27,33 @@ object WeatherSlim {
 
     val df = joined
       .withColumn("tz_offset_min", coalesce(col("tz_hour") * lit(60), lit(0)))
-      .withColumn("obs_utc", addMinutes(col("obs_local_naive"), -col("tz_offset_min")))
+      .withColumn(
+        "obs_utc",
+        addMinutes(col("obs_local_naive"), -col("tz_offset_min"))
+      )
       // ==== Standardisation des unités ====
       // TempC (°C) prioritaire; sinon converti depuis °F
       .withColumn(
         "TempC",
-        coalesce(col("DryBulbCelsius"), (col("DryBulbFarenheit") - lit(32.0)) * lit(5.0 / 9.0))
+        coalesce(
+          col("DryBulbCelsius"),
+          (col("DryBulbFarenheit") - lit(32.0)) * lit(5.0 / 9.0)
+        )
       )
       .withColumn(
         "DewPointC",
-        coalesce(col("DewPointCelsius"), (col("DewPointFarenheit") - lit(32.0)) * lit(5.0 / 9.0))
+        coalesce(
+          col("DewPointCelsius"),
+          (col("DewPointFarenheit") - lit(32.0)) * lit(5.0 / 9.0)
+        )
       )
       // Vent : on garde la vitesse telle quelle (les QCLCD sont souvent en mph ou kt selon source).
       // Si tu sais l’unité exacte de ton CSV, convertis ici vers m/s ou kt.
       .withColumnRenamed("WindSpeed", "WindSpeedRaw")
-      .withColumn("WindSpeedKt", col("WindSpeedRaw")) // TODO: convertir si nécessaire
+      .withColumn(
+        "WindSpeedKt",
+        col("WindSpeedRaw")
+      ) // TODO: convertir si nécessaire
       // Pression : on garde les 3 mesures disponibles (Altimeter inHg, SLP/StationPressure hPa)
       //
       .withColumn("year", year(col("obs_utc")))

@@ -39,7 +39,8 @@ object Main {
       logger.info(s"IO paths resolved: $paths")
 
       // === BRONZE ===
-      val flightsBronze = FlightsBronze.readAndEnrich(spark, paths.flightsInputs, paths.mapping)
+      val flightsBronze =
+        FlightsBronze.readAndEnrich(spark, paths.flightsInputs, paths.mapping)
 
       // Vérification de l'unicité des colonnes
       logger.info("Vérification de l'unicité des colonnes")
@@ -50,7 +51,8 @@ object Main {
 
       // Lecture et enrichissement
       logger.info("Lecture et enrichissement")
-      val weatherBronze = WeatherBronze.readAndEnrich(spark, paths.weatherInputs)
+      val weatherBronze =
+        WeatherBronze.readAndEnrich(spark, paths.weatherInputs)
 
       Writers.writeDelta(
         flightsBronze.coalesce(2),
@@ -73,7 +75,9 @@ object Main {
           if (qaOutDirFile.mkdirs())
             logger.info(s"Répertoire créé : ${qaOutDirFile.getAbsolutePath}")
           else
-            logger.warn(s"Impossible de créer le répertoire : ${qaOutDirFile.getAbsolutePath}")
+            logger.warn(
+              s"Impossible de créer le répertoire : ${qaOutDirFile.getAbsolutePath}"
+            )
         }
         qaOutDirFile.getAbsolutePath
       } match {
@@ -107,7 +111,9 @@ object Main {
           if (silverQaDirFile.mkdirs())
             logger.info(s"Répertoire créé : ${silverQaDirFile.getAbsolutePath}")
           else
-            logger.warn(s"Impossible de créer le répertoire : ${silverQaDirFile.getAbsolutePath}")
+            logger.warn(
+              s"Impossible de créer le répertoire : ${silverQaDirFile.getAbsolutePath}"
+            )
         }
         silverQaDirFile.getAbsolutePath
       } match {
@@ -125,7 +131,8 @@ object Main {
       SilverAnalysis.analyzeFlights(flightsSilverCheck, silverQaDir)
 
       // Météo → UTC par offset fixe d'heures (pas de DST)
-      val weatherSlim = WeatherSlim.enrichWithUTC(spark, weatherBronze, paths.mapping)
+      val weatherSlim =
+        WeatherSlim.enrichWithUTC(spark, weatherBronze, paths.mapping)
       Writers.writeDelta(
         weatherSlim.coalesce(2),
         paths.silverWeatherFiltered,
@@ -135,14 +142,21 @@ object Main {
 
       // === JOIN → JT ===
       val flightsPrepared = Readers.readDelta(spark, paths.silverFlights)
-      val weatherSlimDF   = Readers.readDelta(spark, paths.silverWeatherFiltered)
+      val weatherSlimDF = Readers.readDelta(spark, paths.silverWeatherFiltered)
       val flightsEnriched = FlightsEnriched.build(flightsPrepared)
-      val jtOut           = BuildJT.buildJT(flightsEnriched, weatherSlimDF, cfg.thMinutes)
+      val jtOut = BuildJT.buildJT(flightsEnriched, weatherSlimDF, cfg.thMinutes)
 
-      Writers.writeDelta(jtOut, paths.goldJT, Seq("year", "month"), overwriteSchema = true)
+      Writers.writeDelta(
+        jtOut,
+        paths.goldJT,
+        Seq("year", "month"),
+        overwriteSchema = true
+      )
 
       logger.info(s"JT écrit → ${paths.goldJT}")
-      logger.info("Lignes JT: " + Readers.readDelta(spark, paths.goldJT).count())
+      logger.info(
+        "Lignes JT: " + Readers.readDelta(spark, paths.goldJT).count()
+      )
 
       // === Sanity Checks ===
 
@@ -154,7 +168,12 @@ object Main {
       logger.info("JT rows = " + jtCheck.count)
 
       // Unicité de la clef vol
-      logger.info("JT distinct flight_key = " + jtCheck.select($"F.flight_key").distinct.count)
+      logger.info(
+        "JT distinct flight_key = " + jtCheck
+          .select($"F.flight_key")
+          .distinct
+          .count
+      )
 
       // Présence des timestamps (alternative robuste sur champs imbriqués)
       jtCheck
@@ -169,7 +188,9 @@ object Main {
 
       // Part des vols avec observations météo Wo / Wd
       val withFlags =
-        jtCheck.withColumn("hasWo", size($"Wo") > 0).withColumn("hasWd", size($"Wd") > 0)
+        jtCheck
+          .withColumn("hasWo", size($"Wo") > 0)
+          .withColumn("hasWd", size($"Wd") > 0)
       withFlags
         .agg(
           avg(when($"hasWo", lit(1)).otherwise(lit(0))).as("pct_with_Wo"),

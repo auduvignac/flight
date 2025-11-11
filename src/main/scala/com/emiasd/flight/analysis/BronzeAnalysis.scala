@@ -22,7 +22,9 @@ object BronzeAnalysis {
     }
   }
 
-  /** Comptage des valeurs manquantes par colonne (NaN/NULL/vides selon le type) */
+  /**
+   * Comptage des valeurs manquantes par colonne (NaN/NULL/vides selon le type)
+   */
   def nullsReport(df: DataFrame): DataFrame = {
     val exprs = df.schema.fields.map { f =>
       sum(when(missingExpr(f.name, f.dataType), 1).otherwise(0)).as(f.name)
@@ -31,9 +33,14 @@ object BronzeAnalysis {
   }
 
   /** Comptage d’uniques sur un sous-ensemble de colonnes */
-  def uniquesReport(df: DataFrame, cols: Seq[String], approx: Boolean = true): DataFrame = {
+  def uniquesReport(
+    df: DataFrame,
+    cols: Seq[String],
+    approx: Boolean = true
+  ): DataFrame = {
     val exprs = cols.filter(df.columns.contains).map { c =>
-      if (approx) approx_count_distinct(col(c)).as(c) else countDistinct(col(c)).as(c)
+      if (approx) approx_count_distinct(col(c)).as(c)
+      else countDistinct(col(c)).as(c)
     } :+ count(lit(1)).as("_rows")
     df.agg(exprs.head, exprs.tail: _*)
   }
@@ -56,7 +63,12 @@ object BronzeAnalysis {
       )
     )
 
-    nulls.coalesce(1).write.mode("overwrite").option("header", "true").csv(s"$outDir/flights_nulls")
+    nulls
+      .coalesce(1)
+      .write
+      .mode("overwrite")
+      .option("header", "true")
+      .csv(s"$outDir/flights_nulls")
     uniq
       .coalesce(1)
       .write
@@ -97,7 +109,12 @@ object BronzeAnalysis {
 
     nulls.show(false); uniq.show(false)
 
-    nulls.coalesce(1).write.mode("overwrite").option("header", "true").csv(s"$outDir/weather_nulls")
+    nulls
+      .coalesce(1)
+      .write
+      .mode("overwrite")
+      .option("header", "true")
+      .csv(s"$outDir/weather_nulls")
     uniq
       .coalesce(1)
       .write
