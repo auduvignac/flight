@@ -37,10 +37,9 @@ ASSEMBLY_JAR="target/scala-2.12/flight-assembly.jar"
 echo "📁 Vérification du dataset..."
 ./get-data.sh
 
-if [ "$RESET" = true ]; then
-  echo "🧹 Suppression du répertoire delta (via conteneur root)..."
-  docker compose exec -u root spark-worker bash -c "rm -rf /app/delta/* || true"
-  echo "✅ Répertoire delta nettoyé."
+if [ $? -ne 0 ]; then
+  echo "❌ Erreur lors du téléchargement du dataset."
+  exit 1
 fi
 
 # =========================================================
@@ -80,7 +79,27 @@ echo "🚀 Démarrage du cluster Spark..."
 docker compose up -d
 
 echo "⏳ Attente de la disponibilité du Spark Master..."
-sleep 5
+for i in {1..15}; do
+  if docker logs spark-master 2>&1 | grep -q "Starting Spark master"; then
+    break
+  fi
+  echo "⏳ Spark master pas encore prêt..."
+  sleep 2
+done
+
+if [ "$RESET" = true ]; then
+  echo "🧹 Suppression du répertoire delta (via conteneur root)..."
+  # Attente du conteneur worker
+  for i in {1..10}; do
+    if docker ps | grep -q spark-worker; then
+      docker compose exec -u root spark-worker bash -c "rm -rf /app/delta/* || true"
+      echo "✅ Répertoire delta nettoyé."
+      break
+    fi
+    echo "⏳ Attente du démarrage du spark-worker..."
+    sleep 2
+  done
+fi
 
 # =========================================================
 # Étape 3 : Copie du JAR dans le conteneur spark-submit
