@@ -2,7 +2,7 @@
 package com.emiasd.flight.join
 
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame}
+import org.apache.spark.sql.DataFrame
 
 object BuildJT {
   // Colonnes météo alignées TIST

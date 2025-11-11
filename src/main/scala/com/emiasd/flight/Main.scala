@@ -91,7 +91,7 @@ object Main {
 
       // === SILVER ===
       // /!\ flightsPlan n'est pas utilisé => utilisation ?
-      //val flightsPlan   = CleaningPlans.deriveFlightsPlan(flightsBronze)
+      // val flightsPlan   = CleaningPlans.deriveFlightsPlan(flightsBronze)
       val flightsSilver = CleaningPlans.cleanFlights(flightsBronze)
       Writers.writeDelta(
         flightsSilver.coalesce(2),
