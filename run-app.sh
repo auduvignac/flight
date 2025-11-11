@@ -5,13 +5,22 @@ set -e  # Stop on first error
 # Script de build + lancement du cluster Spark + job
 # =========================================================
 
+# === Paramètres par défaut ===
 BUILD=false
+RESET=false
+STAGE="all"
 
 # === Parsing des arguments ===
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build)
     BUILD=true
+    ;;
+    --reset)
+    RESET=true
+    ;;
+    --stage=*)
+    STAGE="${1#*=}"
     ;;
     *)
     echo "⚠️  Argument inconnu : $1"
@@ -27,6 +36,11 @@ ASSEMBLY_JAR="target/scala-2.12/flight-assembly.jar"
 # =========================================================
 echo "📁 Vérification du dataset..."
 ./get-data.sh
+
+if [ $? -ne 0 ]; then
+  echo "❌ Erreur lors du téléchargement du dataset."
+  exit 1
+fi
 
 # =========================================================
 # Étape 1 : Compilation du projet Scala (si build, fat JAR)
@@ -65,7 +79,27 @@ echo "🚀 Démarrage du cluster Spark..."
 docker compose up -d
 
 echo "⏳ Attente de la disponibilité du Spark Master..."
-sleep 5
+for i in {1..15}; do
+  if docker logs spark-master 2>&1 | grep -q "Starting Spark master"; then
+    break
+  fi
+  echo "⏳ Spark master pas encore prêt..."
+  sleep 2
+done
+
+if [ "$RESET" = true ]; then
+  echo "🧹 Suppression du répertoire delta (via conteneur root)..."
+  # Attente du conteneur worker
+  for i in {1..10}; do
+    if docker ps | grep -q spark-worker; then
+      docker compose exec -u root spark-worker bash -c "rm -rf /app/delta/* || true"
+      echo "✅ Répertoire delta nettoyé."
+      break
+    fi
+    echo "⏳ Attente du démarrage du spark-worker..."
+    sleep 2
+  done
+fi
 
 # =========================================================
 # Étape 3 : Copie du JAR dans le conteneur spark-submit
@@ -84,7 +118,11 @@ docker exec spark-submit chmod +x /app/spark-submit.sh
 # Étape 5 : Soumission du job Spark
 # =========================================================
 echo "🚀 Soumission du job Spark..."
-docker exec spark-submit /app/spark-submit.sh
+echo "----------------------------------------------"
+echo "Build : $BUILD"
+echo "Stage : $STAGE"
+echo "----------------------------------------------"
+docker exec spark-submit /app/spark-submit.sh "$STAGE"
 
 echo ""
 echo "📜 Logs du conteneur spark-submit :"

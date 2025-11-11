@@ -1,16 +1,17 @@
-name: CI/CD - Flight Project
+name: CI/CD - Flight Project (Bronze / Silver / Gold)
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/pipeline-stages]
   pull_request:
+  workflow_dispatch:
 
 jobs:
-  # ===========================
-  # Étape 1 — Build & Tests
-  # ===========================
+  # ============================================
+  # Étape 1 — Build Scala & Quality Checks
+  # ============================================
   scala-build:
-    name: Scala Build & Quality Checks
+    name: Scala Build & Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +21,7 @@ jobs:
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '11'
 
       - name: Setup SBT
@@ -38,6 +39,7 @@ jobs:
           key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt') }}
           restore-keys: |
             ${{ runner.os }}-sbt-
+
       - name: Clean corrupted Ivy cache
         run: find ~/.ivy2/cache -name "ivydata-*.properties" -delete || true
 
@@ -56,21 +58,19 @@ jobs:
       # Tests unitaires
       - name: Run tests
         run: sbt test
-
       # Génération du JAR pour l'étape Docker
-      - name: Build JAR
+      - name: Build Assembly JAR
         run: sbt clean assembly
 
-      # Upload du JAR comme artefact
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: flight-assembly
           path: target/scala-2.12/flight-assembly.jar
 
-  # ===========================
-  # Étape 2 — Build Docker
-  # ===========================
+  # ============================================
+  # Étape 2 — Build Docker image
+  # ============================================
   docker-build:
     name: Build and Push Docker Image
     needs: scala-build
@@ -99,39 +99,150 @@ jobs:
           docker build -f Dockerfile.custom -t $IMAGE_NAME .
           docker push $IMAGE_NAME
 
-  # ===========================
-  # Étape 3 — Run Application
-  # ===========================
-  run-app:
-    name: Run Flight Application
+  # ============================================
+  # Étape 3 — Bronze Stage
+  # ============================================
+  bronze:
+    name: 🟤 Bronze - Ingestion & Enrichment
     needs: [scala-build, docker-build]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Cache dataset
+      # 📦 Cache dataset (réutilisable par Silver & Gold)
       - name: Cache dataset
         uses: actions/cache@v4
         with:
           path: data
           key: dataset-v1
 
-      # Récupération du JAR
-      - name: Download built JAR
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download compiled JAR
         uses: actions/download-artifact@v4
         with:
           name: flight-assembly
           path: target/scala-2.12
 
-      # Setup Docker
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v3
-
-      # Exécution
-      - name: Run Flight application
+      - name: Run Bronze stage
         run: |
           chmod +x run-app.sh
-          ./run-app.sh
+          ./run-app.sh --reset --stage=bronze
+
+      - name: Upload Bronze analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-bronze
+          path: analysis/
+
+      # Sauvegarde du répertoire Delta produit par Bronze
+      - name: Upload Delta Bronze
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-bronze
+          path: delta/
+
+  # ============================================
+  # Étape 4 — Silver Stage
+  # ============================================
+  silver:
+    name: ⚪ Silver - Cleaning & Standardization
+    needs: bronze
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 📦 Restaure le dataset depuis le cache
+      - name: Restore dataset from cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: dataset-v1
+
+      # Récupère le répertoire Delta du Bronze
+      - name: Download Delta Bronze
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-bronze
+          path: delta/
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download compiled JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: flight-assembly
+          path: target/scala-2.12
+
+      - name: Run Silver stage
+        run: |
+          chmod +x run-app.sh
+          ./run-app.sh --stage=silver
+
+      - name: Upload Silver analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-silver
+          path: analysis/
+
+      # Sauvegarde du répertoire Delta produit par Silver
+      - name: Upload Delta Silver
+        uses: actions/upload-artifact@v4
+        with:
+          name: delta-silver
+          path: delta/
+
+  # ============================================
+  # Étape 5 — Gold Stage
+  # ============================================
+  gold:
+    name: 🟡 Gold - Final Join & QA
+    needs: silver
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 📦 Restaure le dataset depuis le cache
+      - name: Restore dataset from cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: dataset-v1
+
+      # Récupère le Delta produit par Silver
+      - name: Download Delta Silver
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-silver
+          path: delta/
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download compiled JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: flight-assembly
+          path: target/scala-2.12
+
+      - name: Run Gold stage
+        run: |
+          chmod +x run-app.sh
+          ./run-app.sh --stage=gold
+
+      - name: Upload Gold analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-gold
+          path: analysis/
