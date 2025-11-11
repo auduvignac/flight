@@ -23,7 +23,13 @@ done
 ASSEMBLY_JAR="target/scala-2.12/flight-assembly.jar"
 
 # =========================================================
-# Étape 0 : Compilation du projet Scala (si build, fat JAR)
+# Étape 0 : Vérification de la présence et rapatriement du dataset
+# =========================================================
+echo "📁 Vérification du dataset..."
+./get-data.sh
+
+# =========================================================
+# Étape 1 : Compilation du projet Scala (si build, fat JAR)
 # =========================================================
 if [ "$BUILD" = true ]; then
   echo "🔧 Compilation du projet Scala avec sbt-assembly..."
@@ -50,7 +56,7 @@ if [ "$BUILD" = true ]; then
 fi
 
 # =========================================================
-# Étape 1 : (Re)démarrage du cluster Spark via Docker
+# Étape 2 : (Re)démarrage du cluster Spark via Docker
 # =========================================================
 echo "🧹 Arrêt de tout cluster Spark existant..."
 docker rm -f spark-submit spark-worker spark-master >/dev/null 2>&1 || true
@@ -62,20 +68,20 @@ echo "⏳ Attente de la disponibilité du Spark Master..."
 sleep 5
 
 # =========================================================
-# Étape 2 : Copie du JAR dans le conteneur spark-submit
+# Étape 3 : Copie du JAR dans le conteneur spark-submit
 # =========================================================
 echo "📦 Copie du jar assemblé dans le conteneur..."
 docker cp "$ASSEMBLY_JAR" spark-submit:/app/flight-assembly.jar
 
 # =========================================================
-# Étape 3 : Préparation du script spark-submit.sh
+# Étape 4 : Préparation du script spark-submit.sh
 # =========================================================
 echo "⚙️  Préparation du script spark-submit.sh..."
 docker exec spark-submit dos2unix /app/spark-submit.sh >/dev/null 2>&1 || true
 docker exec spark-submit chmod +x /app/spark-submit.sh
 
 # =========================================================
-# Étape 4 : Soumission du job Spark
+# Étape 5 : Soumission du job Spark
 # =========================================================
 echo "🚀 Soumission du job Spark..."
 docker exec spark-submit /app/spark-submit.sh
