@@ -8,6 +8,7 @@ data/
 delta/
 .metals/
 .bloop/
+.bsp/
 .idea/
 .ensime_cache/
 *.class

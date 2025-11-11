@@ -1,35 +1,99 @@
 // com/emiasd/flight/join/BuildJT.scala
 package com.emiasd.flight.join
 
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.expressions.Window
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{Column, DataFrame}
+import org.apache.spark.storage.StorageLevel
 
 object BuildJT {
-  // Colonnes météo alignées TIST
-  private def selectWxCols(prefix: String) = Seq(
-    col("obs_utc").as(s"${prefix}_ts"),
-    col("SkyCondition").as(s"${prefix}_sky"),
-    col("WeatherType").as(s"${prefix}_wxType"),
-    col("Visibility").cast("double").as(s"${prefix}_vis"),
-    col("TempC").cast("double").as(s"${prefix}_tempC"),
-    col("DewPointC").cast("double").as(s"${prefix}_dewC"),
-    col("RelativeHumidity").cast("double").as(s"${prefix}_rh"),
-    col("WindSpeedKt").cast("double").as(s"${prefix}_windKt"),
-    col("WindDirection").cast("double").as(s"${prefix}_windDir"),
-    col("Altimeter").cast("double").as(s"${prefix}_altim"),
-    col("SeaLevelPressure").cast("double").as(s"${prefix}_slp"),
-    col("StationPressure").cast("double").as(s"${prefix}_stnp"),
-    col("HourlyPrecip").cast("double").as(s"${prefix}_precip")
-  )
+
+  private def hourlyArrayClosest(
+    fBase: DataFrame,
+    wxPrefixed: DataFrame,
+    airportColInF: String,
+    tsColInF: String,
+    prefix: String,
+    toleranceMin: Int = 45
+  ): DataFrame = {
+
+    // 1) Grille horaire: 13 timestamps cibles [ts-12h .. ts] pas 1h
+    val fWithGrid = fBase
+      .withColumn(
+        s"${prefix}_targets",
+        expr(
+          s"sequence($tsColInF - INTERVAL 12 HOURS, $tsColInF, INTERVAL 1 HOURS)"
+        )
+      )
+      .withColumn(s"${prefix}_target", explode(col(s"${prefix}_targets")))
+      .drop(s"${prefix}_targets")
+
+    // 2) Candidats météo dans la tolérance ±toleranceMin
+    val cand = fWithGrid.join(
+      wxPrefixed,
+      expr(
+        s"""
+           | $airportColInF = ${prefix}_airport_id AND
+           | obs_utc BETWEEN ${prefix}_target - INTERVAL $toleranceMin MINUTES
+           |                 AND ${prefix}_target + INTERVAL $toleranceMin MINUTES
+         """.stripMargin
+      ),
+      "left"
+    )
+
+    // 3) Garder l'observation la plus proche pour chaque (vol, heure cible)
+    val partCols: Seq[Column] =
+      fBase.columns.map(col) :+ col(s"${prefix}_target")
+    val w = Window
+      .partitionBy(partCols: _*)
+      .orderBy(
+        abs(col("obs_utc").cast("long") - col(s"${prefix}_target").cast("long"))
+      )
+
+    val pointCol = s"${prefix}_point"
+    val best = cand
+      .withColumn("rn", row_number().over(w))
+      .where(col("rn") === 1)
+      .select( // >>> dépliage varargs ici <<<
+        (fBase.columns.map(col) :+
+          struct(
+            col(s"${prefix}_target").as(s"${prefix}_ts"),
+            col("SkyCondition").as(s"${prefix}_sky"),
+            col("WeatherType").as(s"${prefix}_wxType"),
+            col("Visibility").cast("double").as(s"${prefix}_vis"),
+            col("TempC").cast("double").as(s"${prefix}_tempC"),
+            col("DewPointC").cast("double").as(s"${prefix}_dewC"),
+            col("RelativeHumidity").cast("double").as(s"${prefix}_rh"),
+            col("WindSpeedKt").cast("double").as(s"${prefix}_windKt"),
+            col("WindDirection").cast("double").as(s"${prefix}_windDir"),
+            col("Altimeter").cast("double").as(s"${prefix}_altim"),
+            col("SeaLevelPressure").cast("double").as(s"${prefix}_slp"),
+            col("StationPressure").cast("double").as(s"${prefix}_stnp"),
+            col("HourlyPrecip").cast("double").as(s"${prefix}_precip")
+          ).as(pointCol)): _*
+      )
+
+    // 4) Recomposer l'array trié (ts, ts-1h, ..., ts-12h)
+    val outCol = if (prefix == "o") "Wo" else "Wd"
+    best
+      .groupBy(fBase.columns.map(col): _*) // >>> dépliage varargs ok <<<
+      .agg(sort_array(collect_list(col(pointCol)), asc = false).as(outCol))
+  }
 
   def buildJT(
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
-    thMinutes: Int
+    thMinutes: Int,
+    toleranceMin: Int = 45 // /!\ toleranceMin n'est jamais utilisé
   ): DataFrame = {
 
-    // wxOrigin
-    val wxOrigin = weatherSlim.select(
+    // ========= OPTIMS MÉTÉO =========
+    val wxBase = weatherSlim
+      .repartition(col("airport_id"))
+      .sortWithinPartitions(col("airport_id"), col("obs_utc"))
+      .persist(StorageLevel.MEMORY_AND_DISK)
+
+    val wxOrigin = wxBase.select(
       col("airport_id").as("o_airport_id"),
       col("obs_utc"),
       col("SkyCondition"),
@@ -46,8 +110,7 @@ object BuildJT {
       col("HourlyPrecip")
     )
 
-    // wxDest
-    val wxDest = weatherSlim.select(
+    val wxDest = wxBase.select(
       col("airport_id").as("d_airport_id"),
       col("obs_utc"),
       col("SkyCondition"),
@@ -64,7 +127,8 @@ object BuildJT {
       col("HourlyPrecip")
     )
 
-    val f = flightsEnriched
+    // ========= PRÉPARATION VOLS =========
+    val f0 = flightsEnriched
       .filter(col("dep_ts_utc").isNotNull && col("arr_ts_utc").isNotNull)
       .withColumn(
         "dep_minus_12h",
@@ -75,85 +139,40 @@ object BuildJT {
         col("arr_ts_utc") - expr("INTERVAL 12 HOURS")
       )
 
-    // Join météo origine (0..12h avant dep)
-    val jO = f
-      .join(
-        wxOrigin,
-        f("origin_airport_id") === wxOrigin("o_airport_id") &&
-          wxOrigin("obs_utc").between(col("dep_minus_12h"), col("dep_ts_utc")),
-        "left"
-      )
-      .select(f.columns.map(col) ++ selectWxCols("o"): _*)
+    // Répartition pour limiter le shuffle
+    val fForO = f0.repartition(col("origin_airport_id"))
 
-    // --- origine ---
-    val aggO = jO
-      .groupBy(f.columns.map(col): _*)
-      .agg(
-        sort_array(
-          collect_list(
-            struct(
-              col("o_ts"),
-              col("o_sky"),
-              col("o_wxType"),
-              col("o_vis"),
-              col("o_tempC"),
-              col("o_dewC"),
-              col("o_rh"),
-              col("o_windKt"),
-              col("o_windDir"),
-              col("o_altim"),
-              col("o_slp"),
-              col("o_stnp"),
-              col("o_precip")
-            )
-          ),
-          asc = true
-        ).as("Wo")
-      )
+    // ========= ORIGINE : Wo (closest hourly) =========
+    val withWo = hourlyArrayClosest(
+      fForO,
+      wxOrigin.withColumnRenamed("o_airport_id", "o_airport_id"),
+      airportColInF = "origin_airport_id",
+      tsColInF = "dep_ts_utc",
+      prefix = "o",
+      toleranceMin = toleranceMin
+    )
 
-    // Join météo destination (0..12h avant arr)
-    val jD = aggO
-      .join(
-        wxDest,
-        aggO("dest_airport_id") === wxDest("d_airport_id") &&
-          wxDest("obs_utc").between(col("arr_minus_12h"), col("arr_ts_utc")),
-        "left"
-      )
-      .select(aggO.columns.map(col) ++ selectWxCols("d"): _*)
+    val fForD = withWo.repartition(col("dest_airport_id"))
 
-    // --- destination ---
-    val aggD = jD
-      .groupBy(aggO.columns.map(col): _*)
-      .agg(
-        sort_array(
-          collect_list(
-            struct(
-              col("d_ts"),
-              col("d_sky"),
-              col("d_wxType"),
-              col("d_vis"),
-              col("d_tempC"),
-              col("d_dewC"),
-              col("d_rh"),
-              col("d_windKt"),
-              col("d_windDir"),
-              col("d_altim"),
-              col("d_slp"),
-              col("d_stnp"),
-              col("d_precip")
-            )
-          ),
-          asc = true
-        ).as("Wd")
-      )
+    // ========= DESTINATION : Wd (closest hourly) =========
+    val withWd = hourlyArrayClosest(
+      fForD,
+      wxDest.withColumnRenamed("d_airport_id", "d_airport_id"),
+      airportColInF = "dest_airport_id",
+      tsColInF = "arr_ts_utc",
+      prefix = "d",
+      toleranceMin = toleranceMin
+    )
 
-    val withC =
-      aggD.withColumn(
-        "C",
-        when(col("ARR_DELAY_NEW") >= thMinutes, lit(1)).otherwise(lit(0))
-      )
+    wxBase.unpersist()
 
-    // F struct minimal (tu pourras enrichir)
+    // ========= ÉTIQUETTE C =========
+    val withC = withWd.withColumn(
+      "C",
+      when(col("ARR_DELAY_NEW") >= lit(thMinutes), lit(1)).otherwise(lit(0))
+    )
+
+    // ========= STRUCT F =========
     val withF = withC.select(
       struct(
         col("OP_CARRIER_AIRLINE_ID").as("carrier"),
@@ -165,6 +184,9 @@ object BuildJT {
         col("dep_ts_utc"),
         col("arr_ts_utc"),
         col("ARR_DELAY_NEW").as("arr_delay_new"),
+        col("WEATHER_DELAY").as("weather_delay"),
+        col("NAS_DELAY").as("nas_delay"),
+        col("NAS_WEATHER_DELAY").as("nas_weather_delay"),
         col("flight_key")
       ).as("F"),
       col("Wo"),
