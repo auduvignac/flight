@@ -7,7 +7,6 @@ import org.apache.spark.sql.functions._
 object WeatherUtcFilter {
   def toUtcAndFilter(
     weatherBronze: DataFrame,
-    weatherPlan: DataFrame,
     mappingWban: DataFrame,
     airports: DataFrame
   ): DataFrame = {

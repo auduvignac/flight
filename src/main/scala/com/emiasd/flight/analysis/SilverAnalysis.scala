@@ -11,7 +11,6 @@ object SilverAnalysis {
 
   // ===== Public entrypoint =====
   def analyzeFlights(df: DataFrame, outDir: String): Unit = {
-    val spark = df.sparkSession
     logger.info("=== ANALYSE FLIGHTS SILVER ===")
     logger.info(s"Rows = ${df.count()}")
 

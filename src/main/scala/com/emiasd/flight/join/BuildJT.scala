@@ -2,7 +2,7 @@
 package com.emiasd.flight.join
 
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{DataFrame}
 
 object BuildJT {
   // Colonnes météo alignées TIST
@@ -23,12 +23,10 @@ object BuildJT {
   )
 
   def buildJT(
-    spark: SparkSession,
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
     thMinutes: Int
   ): DataFrame = {
-    // import spark.implicits._
 
     // wxOrigin
     val wxOrigin = weatherSlim.select(

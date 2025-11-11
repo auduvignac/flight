@@ -90,8 +90,9 @@ object Main {
       BronzeAnalysis.analyzeWeather(weatherBronze, qaOutDir)
 
       // === SILVER ===
-      val flightsPlan   = CleaningPlans.deriveFlightsPlan(flightsBronze)
-      val flightsSilver = CleaningPlans.cleanFlights(flightsBronze, flightsPlan)
+      // /!\ flightsPlan n'est pas utilisé => utilisation ?
+      //val flightsPlan   = CleaningPlans.deriveFlightsPlan(flightsBronze)
+      val flightsSilver = CleaningPlans.cleanFlights(flightsBronze)
       Writers.writeDelta(
         flightsSilver.coalesce(2),
         paths.silverFlights,
@@ -136,7 +137,7 @@ object Main {
       val flightsPrepared = Readers.readDelta(spark, paths.silverFlights)
       val weatherSlimDF   = Readers.readDelta(spark, paths.silverWeatherFiltered)
       val flightsEnriched = FlightsEnriched.build(flightsPrepared)
-      val jtOut           = BuildJT.buildJT(spark, flightsEnriched, weatherSlimDF, cfg.thMinutes)
+      val jtOut           = BuildJT.buildJT(flightsEnriched, weatherSlimDF, cfg.thMinutes)
 
       Writers.writeDelta(jtOut, paths.goldJT, Seq("year", "month"), overwriteSchema = true)
 

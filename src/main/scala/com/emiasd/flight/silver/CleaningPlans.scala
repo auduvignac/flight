@@ -11,7 +11,7 @@ object CleaningPlans {
 
   def deriveFlightsPlan(df: DataFrame): DataFrame = df // hook pour logique future
 
-  def cleanFlights(df: DataFrame, plan: DataFrame): DataFrame = {
+  def cleanFlights(df: DataFrame): DataFrame = {
 
     logger.info("=== [CLEAN FLIGHTS] Préparation et nettoyage des données de vols ===")
 
@@ -100,7 +100,7 @@ object CleaningPlans {
     result
   }
 
-  def deriveWeatherPlan(df: DataFrame, missingnessThreshold: Double): DataFrame = df // placeholder
+  def deriveWeatherPlan(df: DataFrame): DataFrame = df // placeholder
 
   def airportsOfInterest(f: DataFrame): DataFrame =
     f.select(col("origin_airport_id").as("airport_id"))
