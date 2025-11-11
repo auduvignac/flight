@@ -4,6 +4,11 @@ package com.emiasd.flight.io
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object Readers {
+  def exists(path: String): Boolean = {
+    val file = new java.io.File(path)
+    file.exists() && file.listFiles().nonEmpty
+  }
+
   def readCsv(
     spark: SparkSession,
     paths: Seq[String],

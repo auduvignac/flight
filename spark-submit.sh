@@ -5,6 +5,17 @@ set -e
 # 🚀 Spark Submit Script (Template compatible)
 # ==============================================
 
+# --- Vérification des arguments ---
+if [ $# -lt 1 ]; then
+  echo "Usage:"
+  echo "  $0 <stage>"
+  echo "  stage ∈ {bronze, silver, gold, all}"
+  exit 1
+fi
+
+# --- Paramètres par défaut ---
+STAGE=${1:-"all"}
+
 # --- JAR location (cf. run-app.sh) ---
 JAR="/app/flight-assembly.jar"
 MAIN_CLASS="com.emiasd.flight.Main"
@@ -36,4 +47,5 @@ spark-submit \
   --conf "spark.driver.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF" \
   --conf "spark.executor.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF" \
   --conf "spark.app.config=$CFG_FILE" \
-  "$JAR"
+  "$JAR" \
+  "$STAGE"
