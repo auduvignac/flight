@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Bronze / Silver / Gold)
 
 on:
   push:
-    branches: [main, feature/pipeline-stages]
+    branches: [main, feature/target-ratio-analysis-refactor-weather]
   pull_request:
   workflow_dispatch:
 
