@@ -11,6 +11,7 @@ import com.emiasd.flight.join.{BuildJT, FlightsEnriched}
 import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{PathResolver, SparkBuilder}
 import org.apache.log4j.Logger
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 
 import scala.util.{Failure, Success, Try}
@@ -144,7 +145,7 @@ object Main {
       val flightsPrepared = Readers.readDelta(spark, paths.silverFlights)
       val weatherSlimDF = Readers.readDelta(spark, paths.silverWeatherFiltered)
       val flightsEnriched = FlightsEnriched.build(flightsPrepared)
-      val jtOut = BuildJT.buildJT(flightsEnriched, weatherSlimDF, cfg.thMinutes)
+      val jtOut           = BuildJT.buildJT(spark, flightsEnriched, weatherSlimDF, cfg.thMinutes)
 
       Writers.writeDelta(
         jtOut,
@@ -212,6 +213,56 @@ object Main {
         )
         .orderBy(desc("nWo"))
         .show(10, false)
+
+      // === Analyse τ pour D1 ===
+      import com.emiasd.flight.analysis.TargetRatioAnalysis
+      implicit val ss: SparkSession = spark  // implicite dispo pour TargetRatioAnalysis / TargetBatch
+      spark.sparkContext.setLogLevel("WARN")
+      import spark.implicits._
+
+      jtCheck.select(
+        col("F.arr_delay_new"),
+        col("F.weather_delay"),
+        col("F.nas_delay"),
+        col("F.nas_weather_delay")
+      ).show(5, truncate = false)
+
+      TargetRatioAnalysis.run(
+        jt        = jtCheck,
+        outDir    = "analysis/targets",
+        tauGrid   = Seq(0.80, 0.85, 0.90, 0.92, 0.95, 0.98, 1.00),
+        eps       = 1.0,
+        tolTau1Strict = 1e-6,
+        tolTau1Loose  = 0.01
+      )
+
+      // === Génération D1..D4 × Th via batch unique ===
+      import com.emiasd.flight.targets.TargetBatch
+
+      val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
+      val tau      = 0.95
+      val ths      = Seq(15, 30, 45, 60, 90)
+
+      // 1) Clés équilibrées pour tous les jeux (léger)
+      val keysAll = TargetBatch.buildKeysForThresholds(jtCheck, ths, tau, sampleSeed = 1234L)
+
+      // 2) Un seul join pour ré-attacher JT complet (Wo/Wd inclus)
+      val fullAll = TargetBatch.materializeAll(jtCheck, keysAll, includeLightCols = true)
+
+      // 3) Écriture unique et partitionnée ds/th/year/month
+      val outRoot = s"$goldBase/targets"
+      val toWrite =
+        if (fullAll.columns.contains("year") && fullAll.columns.contains("month"))
+          fullAll.repartition(col("ds"), col("th"), col("year"), col("month"))
+        else
+          fullAll.repartition(col("ds"), col("th"))
+
+      Writers.writeDelta(
+        toWrite,
+        outRoot,
+        Seq("ds","th","year","month"),
+        overwriteSchema = true
+      )
 
       logger.info("Application terminée avec succès.")
       spark.stop()
