@@ -62,7 +62,7 @@ echo "🧹 Arrêt de tout cluster Spark existant..."
 docker rm -f spark-submit spark-worker spark-master >/dev/null 2>&1 || true
 
 echo "🚀 Démarrage du cluster Spark..."
-docker-compose up -d
+docker compose up -d
 
 echo "⏳ Attente de la disponibilité du Spark Master..."
 sleep 5
