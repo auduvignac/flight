@@ -2,7 +2,11 @@
 set -e
 
 DATA_DIR="./data"
-FLIGHTS_DIR="$DATA_DIR/flights"
+FLIGHTS_DIR="$DATA_DIR/Flights"
+WEATHER_DIR="$DATA_DIR/Weather"
+NORMALIZED_FLIGHTS_DIR="$DATA_DIR/flights"
+NORMALIZED_WEATHER_DIR="$DATA_DIR/weather"
+WBAN_AIRPORT_TIMEZONE="$DATA_DIR/wban_airport_timezone.csv"
 ZIP_FILE="$DATA_DIR/flights.zip"
 URL="https://www.dropbox.com/sh/iasq7frk6f58ptq/AAAzSmk6cusSNfqYNYsnLGIXa?dl=1"
 REQUIRED_GB=6
@@ -16,20 +20,45 @@ if (( AVAILABLE_GB < REQUIRED_GB )); then
   exit 1
 fi
 
-# Vérifie si déjà téléchargé
-if [ -d "$FLIGHTS_DIR" ]; then
-  echo "✅ Dataset déjà présent dans $FLIGHTS_DIR"
+# Vérifie si le dataset complet est déjà présent
+if [ -d "$NORMALIZED_FLIGHTS_DIR" ] && [ -d "$NORMALIZED_WEATHER_DIR" ] && [ -f "$WBAN_AIRPORT_TIMEZONE" ]; then
+  echo "✅ Dataset complet déjà présent dans $DATA_DIR"
   exit 0
+else
+  echo "📂 Dataset incomplet ou absent : téléchargement requis."
 fi
 
 echo "🛰️ Téléchargement du dataset (~5 Go)..."
 wget --progress=bar:force -O "$ZIP_FILE" "$URL"
 
-echo "📦 Extraction dans $FLIGHTS_DIR..."
-mkdir -p "$FLIGHTS_DIR"
-unzip -q "$ZIP_FILE" -d "$FLIGHTS_DIR"
+echo "📦 Extraction dans $DATA_DIR..."
+
+if command -v timeout &>/dev/null; then
+  # Exécute unzip avec timeout
+  if ! timeout 10m unzip -o "$ZIP_FILE" -d "$DATA_DIR" 2> >(grep -vE "stripped absolute path|mapname" >&2); then
+    if [ $? -eq 124 ]; then
+      echo "⚠️ Extraction interrompue après 10 minutes (timeout atteint)"
+    else
+      echo "⚠️ Unzip a rencontré des erreurs non bloquantes"
+    fi
+  fi
+else
+  # Sans timeout
+  if ! unzip -o "$ZIP_FILE" -d "$DATA_DIR" 2> >(grep -vE "stripped absolute path|mapname" >&2); then
+    echo "⚠️ Unzip a rencontré des erreurs non bloquantes"
+  fi
+fi
 
 echo "🧹 Nettoyage du fichier ZIP..."
 rm -f "$ZIP_FILE"
 
-echo "✅ Dataset prêt dans $FLIGHTS_DIR"
+echo "🧹 Normalisation du nom des répertoires"
+if [ -d "$FLIGHTS_DIR" ]; then
+  mv "$FLIGHTS_DIR" "$NORMALIZED_FLIGHTS_DIR"
+fi
+
+if [ -d "$DATA_DIR/Weather" ]; then
+  mv "$WEATHER_DIR" "$NORMALIZED_WEATHER_DIR"
+fi
+
+echo "✅ Dataset prêt dans $DATA_DIR"
