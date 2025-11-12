@@ -60,7 +60,35 @@ object AppConfig {
   }
 
   def load(): AppConfig = {
-    val root  = ConfigFactory.load()
+    import java.io.File
+
+    // Déterminer le chemin du fichier externe
+    val configPathOpt =
+      sys.props.get("app.config") orElse
+        sys.env.get("APPLICATION_CONFIG_PATH") orElse
+        sys.props.get("spark.app.config")
+
+    // Chargement de la configuration externe si elle existe, sinon fallback sur ConfigFactory.load()
+    val root = configPathOpt match {
+      case Some(path) if new File(path).exists() =>
+        println(s"[AppConfig] Chargement du fichier externe : $path")
+        ConfigFactory.parseFile(new File(path)).resolve()
+      case Some(path) =>
+        println(s"[AppConfig] ⚠️ Fichier indiqué mais introuvable à $path — fallback sur le conf embarqué.")
+        ConfigFactory.load()
+      case None =>
+        println("[AppConfig] Aucun chemin externe fourni — chargement du conf embarqué (application.conf du JAR).")
+        ConfigFactory.load()
+    }
+
+    // Validation
+    if (!root.hasPath("app")) {
+      throw new RuntimeException(
+        "❌ Configuration invalide : clé 'app' manquante dans le fichier de configuration chargé."
+      )
+    }
+
+    // Extraction des sections
     val app   = root.getConfig("app")
     val spark = root.getConfig("spark")
 
@@ -79,20 +107,15 @@ object AppConfig {
       deltaSilverBase = app.getString("output.delta.base.silver"),
       deltaGoldBase = app.getString("output.delta.base.gold"),
       // Hadoop outputs
-      hDeltaBronzeBase =
-        app.getConfig("hadoop").getString("output.delta.base.bronze"),
-      hDeltaSilverBase =
-        app.getConfig("hadoop").getString("output.delta.base.silver"),
-      hDeltaGoldBase =
-        app.getConfig("hadoop").getString("output.delta.base.gold"),
-      // params
+      hDeltaBronzeBase = app.getConfig("hadoop").getString("output.delta.base.bronze"),
+      hDeltaSilverBase = app.getConfig("hadoop").getString("output.delta.base.silver"),
+      hDeltaGoldBase = app.getConfig("hadoop").getString("output.delta.base.gold"),
+      // Params
       monthsF = getSeq(app, "input.months_f"),
       monthsW = getSeq(app, "input.months_w"),
       thMinutes = app.getConfig("params").getInt("thMinutes"),
-      // garde cette ligne SI ta conf est sous la forme "missingness.threshold = 0.60"
-      missingnessThreshold =
-        app.getConfig("params").getDouble("missingness.threshold"),
-      // spark
+      missingnessThreshold = app.getConfig("params").getDouble("missingness.threshold"),
+      // Spark
       sparkMaster = spark.getString("master"),
       sparkAppName = spark.getString("appName"),
       sparkSqlExtensions = spark.getString("sql.extensions"),
