@@ -6,21 +6,5 @@ LABEL description="Image Spark autonome pour le projet Flight"
 USER root
 WORKDIR /app
 
-# --- Copier le JAR généré par la CI ---
-COPY flight-assembly.jar /app/flight-assembly.jar
-
-# --- Copier les fichiers de configuration ---
-COPY src/main/resources/application.conf /opt/config/application.conf
-COPY src/main/resources/log4j2-submit.properties /opt/spark/conf/log4j2.properties
-
-# --- Script de lancement Spark ---
-COPY spark-submit.sh /app/spark-submit.sh
-RUN chmod +x /app/spark-submit.sh
-
-# --- Variables d’environnement ---
-ENV LOG_CONFIG_PATH=/opt/spark/conf/log4j2.properties
-ENV APPLICATION_CONFIG_PATH=/opt/config/application.conf
-ENV SPARK_MASTER_URL=spark://spark-master:7077
-
-# --- Commande par défaut ---
+# --- Commande par défaut : conteneur en attente ---
 CMD ["tail", "-f", "/dev/null"]

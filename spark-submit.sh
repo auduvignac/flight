@@ -30,49 +30,21 @@ fi
 LOG_CONF=${LOG_CONFIG_PATH:-/opt/spark/conf/log4j2.properties}
 # --- application configuration ---
 CFG_FILE=${APPLICATION_CONFIG_PATH:-/opt/config/application.conf}
+# --- configuration spark ---
+SPARK_CONF="/opt/spark/conf/spark.conf"
 
 echo "=============================================="
 echo "🚀 Lancement de Spark"
 echo "=============================================="
-echo "🧱 JAR          : $JAR"
-echo "🏷️  Classe      : $MAIN_CLASS"
-echo "🪵 Log4j conf   : $LOG_CONF"
-echo "🪵 flight conf  : $CFG_FILE"
+echo "JAR         : $JAR"
+echo "Classe      : $MAIN_CLASS"
+echo "Log4j conf  : $LOG_CONF"
+echo "flight conf : $CFG_FILE"
+echo "spark conf  : $SPARK_CONF"
+echo "stage       : $STAGE"
 echo "=============================================="
 
-# --- Submit Spark job ---
-args=(
-  --master "spark://spark-master:7077"
-  --class "$MAIN_CLASS"
-  --conf "spark.driver.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF"
-  --conf "spark.executor.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF"
-  --conf "spark.app.config=$CFG_FILE"
-  --conf "spark.driver.memory=4g"
-  --conf "spark.executor.memory=6g"
-  --conf "spark.executor.cores=2"
-  --conf "spark.executor.instances=4"
-  --conf "spark.executor.memoryOverhead=2048"
-  --conf "spark.memory.offHeap.enabled=true"
-  --conf "spark.memory.offHeap.size=1024m"
-  --conf "spark.serializer=org.apache.spark.serializer.KryoSerializer"
-  --conf "spark.kryoserializer.buffer=64m"
-  --conf "spark.kryoserializer.buffer.max=1024m"
-
-  --conf "spark.local.dir=${SPARK_LOCAL_DIRS:-/opt/spark/local}"
-
-  --conf "spark.sql.adaptive.enabled=true"
-  --conf "spark.sql.adaptive.coalescePartitions.enabled=true"
-  --conf "spark.sql.adaptive.advisoryPartitionSizeInBytes=64MB"
-  --conf "spark.sql.adaptive.skewJoin.enabled=true"
-  --conf "spark.sql.shuffle.partitions=96"
-  --conf "spark.default.parallelism=96"
-
-  --conf "spark.network.timeout=600s"
-  --conf "spark.executor.heartbeatInterval=30s"
-  --conf "spark.shuffle.compress=true"
-  --conf "spark.shuffle.spill.compress=true"
-
-  --conf "spark.sql.files.maxRecordsPerFile=1000000"
-)
-
-spark-submit "${args[@]}" "$JAR" "$STAGE"
+spark-submit \
+  --properties-file "$SPARK_CONF" \
+  --class "$MAIN_CLASS" \
+  "$JAR" "$STAGE"

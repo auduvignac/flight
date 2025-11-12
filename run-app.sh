@@ -115,7 +115,6 @@ docker cp "$ASSEMBLY_JAR" spark-submit:/app/flight-assembly.jar
 # =========================================================
 echo "⚙️  Préparation du script spark-submit.sh..."
 docker exec spark-submit dos2unix /app/spark-submit.sh >/dev/null 2>&1 || true
-docker exec spark-submit chmod +x /app/spark-submit.sh
 
 # =========================================================
 # Étape 5 : Soumission du job Spark
