@@ -74,10 +74,14 @@ object AppConfig {
         println(s"[AppConfig] Chargement du fichier externe : $path")
         ConfigFactory.parseFile(new File(path)).resolve()
       case Some(path) =>
-        println(s"[AppConfig] ⚠️ Fichier indiqué mais introuvable à $path — fallback sur le conf embarqué.")
+        println(
+          s"[AppConfig] ⚠️ Fichier indiqué mais introuvable à $path — fallback sur le conf embarqué."
+        )
         ConfigFactory.load()
       case None =>
-        println("[AppConfig] Aucun chemin externe fourni — chargement du conf embarqué (application.conf du JAR).")
+        println(
+          "[AppConfig] Aucun chemin externe fourni — chargement du conf embarqué (application.conf du JAR)."
+        )
         ConfigFactory.load()
     }
 
@@ -107,14 +111,18 @@ object AppConfig {
       deltaSilverBase = app.getString("output.delta.base.silver"),
       deltaGoldBase = app.getString("output.delta.base.gold"),
       // Hadoop outputs
-      hDeltaBronzeBase = app.getConfig("hadoop").getString("output.delta.base.bronze"),
-      hDeltaSilverBase = app.getConfig("hadoop").getString("output.delta.base.silver"),
-      hDeltaGoldBase = app.getConfig("hadoop").getString("output.delta.base.gold"),
+      hDeltaBronzeBase =
+        app.getConfig("hadoop").getString("output.delta.base.bronze"),
+      hDeltaSilverBase =
+        app.getConfig("hadoop").getString("output.delta.base.silver"),
+      hDeltaGoldBase =
+        app.getConfig("hadoop").getString("output.delta.base.gold"),
       // Params
       monthsF = getSeq(app, "input.months_f"),
       monthsW = getSeq(app, "input.months_w"),
       thMinutes = app.getConfig("params").getInt("thMinutes"),
-      missingnessThreshold = app.getConfig("params").getDouble("missingness.threshold"),
+      missingnessThreshold =
+        app.getConfig("params").getDouble("missingness.threshold"),
       // Spark
       sparkMaster = spark.getString("master"),
       sparkAppName = spark.getString("appName"),
