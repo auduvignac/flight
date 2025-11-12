@@ -77,7 +77,7 @@ object TargetBatch {
 
     val right =
       if (includeLightCols)
-        keysAll.select("flight_key", "ds", "th", "is_pos", "C")
+        keysAll.select("flight_key", "ds", "th", "is_pos")
       else keysAll.select("flight_key", "ds", "th")
 
     jtWithKey.join(
