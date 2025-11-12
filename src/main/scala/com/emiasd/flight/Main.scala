@@ -350,8 +350,16 @@ object Main {
 
       // Option : exécuter une seule étape si argument fourni
       logger.info(s"Args = ${args.toList}")
-      val stage = args.headOption.getOrElse("all").toLowerCase
+
+
+      //val stage = args.headOption.getOrElse("all").toLowerCase
+      val stage = args.headOption.getOrElse {
+        logger.error("Aucun stage fourni (attendu: bronze | silver | gold | all)")
+        sys.exit(2)
+      }.replaceFirst("^--stage=", "").toLowerCase
+
       logger.info(s"Stage demandé = $stage")
+
       stage match {
         case "bronze" =>
           runBronze(spark, paths)
