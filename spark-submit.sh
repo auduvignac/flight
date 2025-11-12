@@ -47,26 +47,19 @@ args=(
   --conf "spark.driver.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF"
   --conf "spark.executor.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF"
   --conf "spark.app.config=$CFG_FILE"
-
-  # Recos mémoire/ressources
   --conf "spark.driver.memory=4g"
   --conf "spark.executor.memory=6g"
   --conf "spark.executor.cores=2"
   --conf "spark.executor.instances=4"
-# Overhead natif (shuffle, sérialisation, JNI…)
---conf "spark.executor.memoryOverhead=2048" \
-# Off-heap (Tungsten, buffers)
---conf "spark.memory.offHeap.enabled=true" \
---conf "spark.memory.offHeap.size=1024m" \
-# Kryo buffers assez grands pour éviter les OOM sérialisation
---conf "spark.serializer=org.apache.spark.serializer.KryoSerializer" \
---conf "spark.kryoserializer.buffer=64m" \
---conf "spark.kryoserializer.buffer.max=1024m" \
+  --conf "spark.executor.memoryOverhead=2048"
+  --conf "spark.memory.offHeap.enabled=true"
+  --conf "spark.memory.offHeap.size=1024m"
+  --conf "spark.serializer=org.apache.spark.serializer.KryoSerializer"
+  --conf "spark.kryoserializer.buffer=64m"
+  --conf "spark.kryoserializer.buffer.max=1024m"
 
-  # Disque de shuffle
   --conf "spark.local.dir=${SPARK_LOCAL_DIRS:-/opt/spark/local}"
 
-  # AQE / partitions
   --conf "spark.sql.adaptive.enabled=true"
   --conf "spark.sql.adaptive.coalescePartitions.enabled=true"
   --conf "spark.sql.adaptive.advisoryPartitionSizeInBytes=64MB"
@@ -74,14 +67,12 @@ args=(
   --conf "spark.sql.shuffle.partitions=96"
   --conf "spark.default.parallelism=96"
 
-  # Résilience réseau & shuffle
   --conf "spark.network.timeout=600s"
   --conf "spark.executor.heartbeatInterval=30s"
   --conf "spark.shuffle.compress=true"
   --conf "spark.shuffle.spill.compress=true"
 
-  # Fichiers de sortie
   --conf "spark.sql.files.maxRecordsPerFile=1000000"
 )
 
-spark-submit "${args[@]}" "$JAR" -- "$STAGE"
+spark-submit "${args[@]}" "$JAR" "$STAGE"
