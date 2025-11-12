@@ -75,6 +75,9 @@ fi
 echo "🧹 Arrêt de tout cluster Spark existant..."
 docker rm -f spark-submit spark-worker spark-master >/dev/null 2>&1 || true
 
+echo " Création du répertoire local de shuffle..."
+mkdir -p ./spark-local   # +++ support shuffle local
+
 echo "🚀 Démarrage du cluster Spark..."
 docker compose up -d
 

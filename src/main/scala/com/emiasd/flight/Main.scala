@@ -349,7 +349,9 @@ object Main {
       logger.info(s"IO paths resolved: $paths")
 
       // Option : exécuter une seule étape si argument fourni
+      logger.info(s"Args = ${args.toList}")
       val stage = args.headOption.getOrElse("all").toLowerCase
+      logger.info(s"Stage demandé = $stage")
       stage match {
         case "bronze" =>
           runBronze(spark, paths)
