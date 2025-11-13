@@ -30,17 +30,20 @@ object FeatureBuilder {
       col("ds"),
       col("th"),
       col(cfg.labelCol).cast("double").as("label"),
-      col("F.OP_CARRIER_AIRLINE_ID").as("carrier_id"),
+
+      // >>> champs présents dans F selon ton message d'erreur
+      col("F.carrier").as("carrier_id"),
       col("F.origin_airport_id").as("origin_id"),
       col("F.dest_airport_id").as("dest_id"),
-      col("F.FL_NUM").as("flnum"),
-      col("F.CRS_DEP_TIME").as("crs_dep_time"),
-      col("F.year").as("year"),
-      col("F.month").cast("int").as("month")
-      // TODO: ajouter ici les features météo agrégées Wo/Wd quand tu veux
+      col("F.flnum").as("flnum"),
+      col("F.crs_dep_scheduled_hhmm").as("crs_dep_time"),
+
+      // >>> year / month sont au niveau racine (hors struct F)
+      col("year"),
+      col("month").cast("int").as("month")
     )
 
-    // 2) time-feature : CRS_DEP_TIME (HHMM) -> minutes depuis minuit
+    // 2) time-feature : crs_dep_time (HHMM) -> minutes depuis minuit
     val withDepMinutes = base.withColumn(
       "dep_minutes",
       (col("crs_dep_time") / 100).cast("int") * 60 + (col("crs_dep_time") % 100)
@@ -61,6 +64,7 @@ object FeatureBuilder {
 
     cleaned
   }
+
 
   /**
    * Fonction demandée :
