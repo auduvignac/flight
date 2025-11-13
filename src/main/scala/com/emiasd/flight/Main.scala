@@ -3,13 +3,15 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
-import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis}
+import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetsInspection}
 import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
 import com.emiasd.flight.config.AppConfig
 import com.emiasd.flight.io.{Readers, Writers}
 import com.emiasd.flight.join.{BuildJT, FlightsEnriched}
 import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{IOPaths, PathResolver, SparkBuilder}
+import com.emiasd.flight.ml.{FeatureBuilder, ModelingPipeline}
+import com.emiasd.flight.ml.FeatureBuilder.FeatureConfig
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
@@ -315,13 +317,29 @@ object Main {
     val fullAll =
       TargetBatch.materializeAll(jtCheck, keysAll, includeLightCols = true)
 
+    // 2bis) Schéma explicite pour la table targets
+    // (à ajuster si tu veux plus/moins de colonnes)
+    val targetsDf = fullAll.select(
+      col("F"),            // struct vol
+      col("Wo"),           // météo origine
+      col("Wd"),           // météo destination
+      col("C"),            // label binaire
+      col("flight_key"),
+      col("year"),
+      col("month"),
+      col("ds"),           // dataset : D1..D4
+      col("th"),           // seuil minutes
+      col("is_pos")        // label D* (balancé)
+    )
+
     // 3) Écriture unique et partitionnée ds/th/year/month
     val outRoot = s"$goldBase/targets"
+
     val toWrite =
-      if (fullAll.columns.contains("year") && fullAll.columns.contains("month"))
-        fullAll.repartition(col("ds"), col("th"), col("year"), col("month"))
+      if (targetsDf.columns.contains("year") && targetsDf.columns.contains("month"))
+        targetsDf.repartition(col("ds"), col("th"), col("year"), col("month"))
       else
-        fullAll.repartition(col("ds"), col("th"))
+        targetsDf.repartition(col("ds"), col("th"))
 
     Writers.writeDelta(
       toWrite,
@@ -330,7 +348,62 @@ object Main {
       overwriteSchema = true
     )
 
+
     logger.info("Étape Gold terminée avec succès.")
+
+    val targetsPath = outRoot   // déjà correctement défini
+    TargetsInspection.inspectSlice(
+      spark,
+      targetsPath,
+      dsValue = "D2",
+      thValue = 60,
+      n = 20
+    )
+
+    // Inspection uniquement en mode Local, pour éviter le bruit en prod
+    if (cfg.env == "Local") {
+      TargetsInspection.inspectSlice(spark, targetsPath, dsValue = "D2", thValue = 60, n = 20)
+    }
+  }
+
+  // =======================
+  // Étape 4 : SPARK ML
+  // =======================
+  /**
+   * Étape ML : préparation du dataset (D2, th=cfg.thMinutes) + entraînement RandomForest
+   */
+  def runModeling(
+                   spark: SparkSession,
+                   paths: IOPaths,
+                   cfg: AppConfig
+                 ): Unit = {
+    logger.info("=== Étape Spark ML ===")
+
+    // On retrouve la base gold comme dans runGold
+    // ex : paths.goldJT = "/app/delta/gold/JT_th60"
+    val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
+    val targetsPath = s"$goldBase/targets"
+
+    val ds = "D2"          // dataset cible principal (comme dans TIST)
+    val th = cfg.thMinutes // typiquement 60
+
+    logger.info(s"=== Étape ML : préparation du dataset ds=$ds, th=$th ===")
+
+    val (trainDF, testDF) =
+      FeatureBuilder.prepareDataset(
+        spark,
+        targetsPath,
+        ds,
+        th,
+        FeatureConfig(
+          labelCol     = "is_pos", // label équilibré (TIST-like)
+          testFraction = 0.2,
+          seed         = 42L
+        )
+      )
+
+    logger.info(s"=== Étape ML : entraînement RandomForest ds=$ds, th=$th ===")
+    ModelingPipeline.trainAndEvaluate(spark, trainDF, testDF, ds, th)
   }
 
   // =======================
@@ -367,10 +440,16 @@ object Main {
         case "gold" =>
           runGold(spark, paths, cfg)
 
+        case "ml" =>
+          // si tu veux être sûr que targets existe, tu peux faire :
+          runGold(spark, paths, cfg)
+          runModeling(spark, paths, cfg)
+
         case "all" =>
           runBronze(spark, paths)
           runSilver(spark, paths)
           runGold(spark, paths, cfg)
+          runModeling(spark, paths, cfg)
       }
 
       logger.info("Application terminée avec succès.")
