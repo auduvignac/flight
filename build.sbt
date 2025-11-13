@@ -7,6 +7,7 @@ libraryDependencies ++= Seq(
   // Spark runtime : fournis par le cluster (pas embarqués dans le JAR)
   "org.apache.spark" %% "spark-core" % "3.5.1" % "provided",
   "org.apache.spark" %% "spark-sql"  % "3.5.1" % "provided",
+  "org.apache.spark" %% "spark-mllib" % "3.5.1" % "provided",
 
   // Dépendance Delta intégrée dans ton assembly JAR
   "io.delta" %% "delta-spark" % "3.2.1",
