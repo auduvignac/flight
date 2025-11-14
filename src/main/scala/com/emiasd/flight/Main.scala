@@ -101,8 +101,8 @@ object Main {
     logger.info("=== Étape SILVER ===")
 
     // Vérification de la présence des tables Bronze
-    val bronzeFlightsExists = Readers.exists(paths.bronzeFlights)
-    val bronzeWeatherExists = Readers.exists(paths.bronzeWeather)
+    val bronzeFlightsExists = Readers.exists(spark, paths.bronzeFlights)
+    val bronzeWeatherExists = Readers.exists(spark, paths.bronzeWeather)
 
     if (!bronzeFlightsExists && !bronzeWeatherExists) {
       logger.warn(
@@ -189,8 +189,8 @@ object Main {
     logger.info("=== Étape GOLD ===")
 
     // Vérification de la présence des tables Silver
-    val silverFlightsExists = Readers.exists(paths.silverFlights)
-    val silverWeatherExists = Readers.exists(paths.silverWeatherFiltered)
+    val silverFlightsExists = Readers.exists(spark, paths.silverFlights)
+    val silverWeatherExists = Readers.exists(spark, paths.silverWeatherFiltered)
 
     if (!silverFlightsExists && !silverWeatherExists) {
       logger.warn(
@@ -296,7 +296,14 @@ object Main {
       logger.info(s"IO paths resolved: $paths")
 
       // Option : exécuter une seule étape si argument fourni
-      val stage = args.headOption.getOrElse("all").toLowerCase
+      val allowedStages = Set("bronze", "silver", "gold", "all")
+      val stage         = args.headOption.getOrElse("all").toLowerCase
+      if (!allowedStages.contains(stage)) {
+        logger.error(
+          s"Valeur d'étape non supportée: '$stage'. Valeurs autorisées: ${allowedStages.mkString(", ")}"
+        )
+        sys.exit(1)
+      }
       stage match {
         case "bronze" =>
           runBronze(spark, paths)
@@ -311,11 +318,6 @@ object Main {
           runBronze(spark, paths)
           runSilver(spark, paths)
           runGold(spark, paths, cfg)
-
-        case other =>
-          logger.warn(
-            s"Étape inconnue '$other' — valeurs possibles: bronze, silver, gold, all"
-          )
       }
 
       logger.info("Application terminée avec succès.")

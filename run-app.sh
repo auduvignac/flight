@@ -83,22 +83,36 @@ for i in {1..15}; do
   if docker logs spark-master 2>&1 | grep -q "Starting Spark master"; then
     break
   fi
-  echo "⏳ Spark master pas encore prêt..."
+  echo "⏳ Spark master en préparation..."
   sleep 2
 done
 
 if [ "$RESET" = true ]; then
   echo "🧹 Suppression du répertoire delta (via conteneur root)..."
   # Attente du conteneur worker
+  worker_found=false
   for i in {1..10}; do
     if docker ps | grep -q spark-worker; then
-      docker compose exec -u root spark-worker bash -c "rm -rf /app/delta/* || true"
-      echo "✅ Répertoire delta nettoyé."
+      worker_found=true
+      # Vérifier l'accessibilité du répertoire delta
+      if docker compose exec -u root spark-worker bash -c "[ -d /app/delta ]"; then
+        if docker compose exec -u root spark-worker bash -c "[ -w /app/delta ]"; then
+          docker compose exec -u root spark-worker bash -c "rm -rf /app/delta/* || true"
+          echo "✅ Répertoire delta nettoyé."
+        else
+          echo "❌ Le répertoire /app/delta existe mais n'est pas accessible en écriture dans le conteneur spark-worker."
+        fi
+      else
+        echo "❌ Le répertoire /app/delta n'existe pas dans le conteneur spark-worker."
+      fi
       break
     fi
     echo "⏳ Attente du démarrage du spark-worker..."
     sleep 2
   done
+  if [ "$worker_found" = false ]; then
+    echo "❌ Le conteneur spark-worker n'est pas en cours d'exécution. Impossible de réinitialiser le répertoire delta."
+  fi
 fi
 
 # =========================================================

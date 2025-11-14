@@ -1,13 +1,12 @@
 // com/emiasd/flight/io/Readers.scala
 package com.emiasd.flight.io
 
+import _root_.io.delta.tables.DeltaTable
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object Readers {
-  def exists(path: String): Boolean = {
-    val file = new java.io.File(path)
-    file.exists() && file.listFiles().nonEmpty
-  }
+  def exists(spark: SparkSession, path: String): Boolean =
+    DeltaTable.isDeltaTable(spark, path)
 
   def readCsv(
     spark: SparkSession,

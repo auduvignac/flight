@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Bronze / Silver / Gold)
 
 on:
   push:
-    branches: [main, feature/pipeline-stages]
+    branches: [main, chore/pipeline-stages-sourcery]
   pull_request:
   workflow_dispatch:
 
