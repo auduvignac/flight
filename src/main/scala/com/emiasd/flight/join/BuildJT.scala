@@ -21,23 +21,23 @@ object BuildJT {
     val fWithGrid = fBase
       .withColumn(
         s"${prefix}_targets",
-        expr(
-          s"sequence($tsColInF - INTERVAL 12 HOURS, $tsColInF, INTERVAL 1 HOURS)"
+        sequence(
+          col(tsColInF) - expr("INTERVAL 12 HOURS"),
+          col(tsColInF),
+          expr("INTERVAL 1 HOURS")
         )
       )
       .withColumn(s"${prefix}_target", explode(col(s"${prefix}_targets")))
       .drop(s"${prefix}_targets")
 
     // 2) Candidats météo dans la tolérance ±toleranceMin
-    val cand = fWithGrid.join(
+    val joined = fWithGrid.join(
       wxPrefixed,
-      expr(
-        s"""
-           | $airportColInF = ${prefix}_airport_id AND
-           | obs_utc BETWEEN ${prefix}_target - INTERVAL $toleranceMin MINUTES
-           |                 AND ${prefix}_target + INTERVAL $toleranceMin MINUTES
-         """.stripMargin
-      ),
+      col(airportColInF) === col(s"${prefix}_airport_id") &&
+        col("obs_utc").between(
+          col(s"${prefix}_target") - expr(s"INTERVAL ${toleranceMin} MINUTES"),
+          col(s"${prefix}_target") + expr(s"INTERVAL ${toleranceMin} MINUTES")
+        ),
       "left"
     )
 
@@ -51,10 +51,10 @@ object BuildJT {
       )
 
     val pointCol = s"${prefix}_point"
-    val best = cand
+    val best = joined
       .withColumn("rn", row_number().over(w))
-      .where(col("rn") === 1)
-      .select( // >>> dépliage varargs ici <<<
+      .filter(col("rn") === 1)
+      .select(
         (fBase.columns.map(col) :+
           struct(
             col(s"${prefix}_target").as(s"${prefix}_ts"),
@@ -76,7 +76,7 @@ object BuildJT {
     // 4) Recomposer l'array trié (ts, ts-1h, ..., ts-12h)
     val outCol = if (prefix == "o") "Wo" else "Wd"
     best
-      .groupBy(fBase.columns.map(col): _*) // >>> dépliage varargs ok <<<
+      .groupBy(fBase.columns.map(col): _*)
       .agg(sort_array(collect_list(col(pointCol)), asc = false).as(outCol))
   }
 
