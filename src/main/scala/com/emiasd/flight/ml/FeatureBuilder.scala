@@ -3,6 +3,7 @@ package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.DoubleType
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object FeatureBuilder {
@@ -125,7 +126,7 @@ object FeatureBuilder {
           val outCol    = s"${prefix}_h${h}_${v}" // ex: o_h0_vis
           dfAcc.withColumn(
             outCol,
-            coalesce(structCol.getField(fieldName).cast("double"), lit(0.0))
+            coalesce(structCol.getField(fieldName).cast(DoubleType), lit(Double.NaN))
           )
         }
       }
