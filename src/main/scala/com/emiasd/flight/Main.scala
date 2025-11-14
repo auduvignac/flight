@@ -102,7 +102,7 @@ object Main {
 
     // Vérification de la présence des tables Bronze
     val bronzeFlightsExists = Readers.exists(spark, paths.bronzeFlights)
-    val bronzeWeatherExists = Readers.exists(spark,  paths.bronzeWeather)
+    val bronzeWeatherExists = Readers.exists(spark, paths.bronzeWeather)
 
     if (!bronzeFlightsExists && !bronzeWeatherExists) {
       logger.warn(
