@@ -2,25 +2,33 @@
 package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
-import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object FeatureBuilder {
   val logger = Logger.getLogger(getClass.getName)
+
   /**
    * Configuration pour la préparation dataset
    */
   case class FeatureConfig(
-                            labelCol: String    = "is_pos", // ou "C" si tu veux le label brut
-                            testFraction: Double = 0.2,
-                            seed: Long           = 42L
-                          )
+    labelCol: String = "is_pos", // ou "C" si tu veux le label brut
+    testFraction: Double = 0.2,
+    seed: Long = 42L
+  )
 
   // Variables météo numériques qu'on va exploiter
   private val wxNumericVars: Seq[String] = Seq(
-    "vis", "tempC", "dewC", "rh",
-    "windKt", "windDir",
-    "altim", "slp", "stnp", "precip"
+    "vis",
+    "tempC",
+    "dewC",
+    "rh",
+    "windKt",
+    "windDir",
+    "altim",
+    "slp",
+    "stnp",
+    "precip"
   )
 
   /**
@@ -45,8 +53,7 @@ object FeatureBuilder {
   /**
    * Flatten de la table targets vers une table de features "vol" sans météo.
    */
-  def buildFlatFeatures(df: DataFrame, cfg: FeatureConfig)(implicit spark: SparkSession): DataFrame = {
-    import spark.implicits._
+  def buildFlatFeatures(df: DataFrame, cfg: FeatureConfig): DataFrame = {
 
     val base = df.select(
       col("flight_key"),
@@ -77,91 +84,78 @@ object FeatureBuilder {
     )
 
     // On NE met PAS Wo/Wd dans la liste de colonnes critiques pour le drop
-    val cleaned = withDepMinutes.na.drop("any", Seq(
-      "label",
-      "carrier_id",
-      "origin_id",
-      "dest_id",
-      "flnum",
-      "year",
-      "month",
-      "dep_minutes"
-    ))
+    val cleaned = withDepMinutes.na.drop(
+      "any",
+      Seq(
+        "label",
+        "carrier_id",
+        "origin_id",
+        "dest_id",
+        "flnum",
+        "year",
+        "month",
+        "dep_minutes"
+      )
+    )
 
     cleaned
   }
 
-
   /**
-   * Ajout dynamique des features météo Wo/Wd
-   * originHours = nombre d'observations à l’origine (Wo)
-   * destHours   = nombre d'observations à destination (Wd)
+   * Ajout dynamique des features météo Wo/Wd originHours = nombre
+   * d'observations à l’origine (Wo) destHours = nombre d'observations à
+   * destination (Wd)
    */
   def addWeatherFeatures(
-                          df: DataFrame,
-                          originHours: Int,
-                          destHours: Int
-                        )(implicit spark: SparkSession): DataFrame = {
+    df: DataFrame,
+    originHours: Int,
+    destHours: Int
+  ): DataFrame = {
 
-    import spark.implicits._
-
-    var out = df
-
-    def addSide(prefix: String, arrCol: String, hours: Int): Unit = {
-      // prefix = "o" ou "d", arrCol = "Wo" ou "Wd"
-      for {
-        h <- 0 until hours
-      } {
-        val structCol = col(arrCol).getItem(h) // O(A, t-h) ou D(A, t-h)
-        wxNumericVars.foreach { v =>
-          val fieldName = s"${prefix}_${v}"           // ex: o_vis, d_tempC, ...
-          val outCol    = s"${prefix}_h${h}_${v}"     // ex: o_h0_vis
-
-          out = out.withColumn(
+    def addSide(
+      dfIn: DataFrame,
+      prefix: String,
+      arrCol: String,
+      hours: Int
+    ): DataFrame =
+      (0 until hours).foldLeft(dfIn) { (acc, h) =>
+        val structCol = col(arrCol).getItem(h)
+        wxNumericVars.foldLeft(acc) { (dfAcc, v) =>
+          val fieldName = s"${prefix}_${v}"       // ex: o_vis, d_tempC
+          val outCol    = s"${prefix}_h${h}_${v}" // ex: o_h0_vis
+          dfAcc.withColumn(
             outCol,
-            coalesce(
-              structCol.getField(fieldName).cast("double"),
-              lit(0.0)
-            )
+            coalesce(structCol.getField(fieldName).cast("double"), lit(0.0))
           )
         }
       }
-    }
 
-    if (originHours > 0) {
-      addSide(prefix = "o", arrCol = "Wo", hours = originHours)
-    }
+    val withOrigin =
+      if (originHours > 0) addSide(df, "o", "Wo", originHours) else df
+    val withDest =
+      if (destHours > 0) addSide(withOrigin, "d", "Wd", destHours)
+      else withOrigin
 
-    if (destHours > 0) {
-      addSide(prefix = "d", arrCol = "Wd", hours = destHours)
-    }
-
-    // Optionnel : on droppe Wo/Wd pour avoir un DF plus propre
-    out = out.drop("Wo", "Wd")
-
-    out
+    withDest.drop("Wo", "Wd")
   }
-
 
   /**
    * Fonction principale :
-   *  - lit gold/targets
-   *  - filtre ds/th
-   *  - construit features vols + météo (optionnelle)
-   *  - split train/test
-   *  - renvoie (train, test, extraNumColsMeteo)
+   *   - lit gold/targets
+   *   - filtre ds/th
+   *   - construit features vols + météo (optionnelle)
+   *   - split train/test
+   *   - renvoie (train, test, extraNumColsMeteo)
    */
   def prepareDataset(
-                      spark: SparkSession,
-                      targetsPath: String,
-                      ds: String,
-                      th: Int,
-                      cfg: FeatureConfig = FeatureConfig(),
-                      originHours: Int = 0,
-                      destHours: Int = 0
-                    ): (DataFrame, DataFrame, Array[String]) = {
-
-    implicit val s: SparkSession = spark
+    spark: SparkSession,
+    targetsPath: String,
+    ds: String,
+    th: Int,
+    cfg: FeatureConfig = FeatureConfig(),
+    originHours: Int = 0,
+    destHours: Int = 0
+  ): (DataFrame, DataFrame, Array[String]) = {
 
     val raw = spark.read.format("delta").load(targetsPath)
 
@@ -169,7 +163,9 @@ object FeatureBuilder {
       .filter(col("ds") === lit(ds) && col("th") === lit(th))
 
     val n = slice.count()
-    logger.info(s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n lignes avant features (originHours=$originHours, destHours=$destHours)")
+    logger.info(
+      s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n lignes avant features (originHours=$originHours, destHours=$destHours)"
+    )
 
     val baseFeatures = buildFlatFeatures(slice, cfg)
 
@@ -181,7 +177,9 @@ object FeatureBuilder {
         baseFeatures
 
     val n2 = withWx.count()
-    logger.info(s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n2 lignes après features (originHours=$originHours, destHours=$destHours)")
+    logger.info(
+      s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n2 lignes après features (originHours=$originHours, destHours=$destHours)"
+    )
 
     val extraNumCols = weatherFeatureNames(originHours, destHours)
 
@@ -198,4 +196,3 @@ object FeatureBuilder {
     (train, test, extraNumCols)
   }
 }
-

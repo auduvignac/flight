@@ -380,10 +380,10 @@ object Main {
   // Étape 4 : SPARK ML
   // =======================
   def runModeling(
-                   spark: SparkSession,
-                   paths: IOPaths,
-                   cfg: AppConfig
-                 ): Unit = {
+    spark: SparkSession,
+    paths: IOPaths,
+    cfg: AppConfig
+  ): Unit = {
 
     // On reconstruit le chemin des targets comme dans runGold
     val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
@@ -396,23 +396,25 @@ object Main {
       logger.error(s"Table GOLD targets introuvable à $targetsPath")
       throw new IllegalStateException(s"Missing Delta table at $targetsPath")
     } else {
-      logger.info("La table Gold est présente — passage direct à l'étape de Modélisation.")
+      logger.info(
+        "La table Gold est présente — passage direct à l'étape de Modélisation."
+      )
     }
 
     val baseCfg = FeatureConfig(
-      labelCol     = "is_pos",
+      labelCol = "is_pos",
       testFraction = 0.2,
-      seed         = 42L
+      seed = 42L
     )
 
     // Helper pour lancer une expérience
     def runOneExperiment(
-                          ds: String,
-                          th: Int,
-                          originHours: Int,
-                          destHours: Int,
-                          tag: String
-                        ): Unit = {
+      ds: String,
+      th: Int,
+      originHours: Int,
+      destHours: Int,
+      tag: String
+    ): Unit = {
       logger.info(
         s"=== Expérience $tag : ds=$ds, th=$th, originHours=$originHours, destHours=$destHours ==="
       )
@@ -443,11 +445,11 @@ object Main {
     // BASELINE (0 météo) – D2, th=60
     // =======================
     runOneExperiment(
-      ds          = "D2",
-      th          = cfg.thMinutes, // 60
+      ds = "D2",
+      th = cfg.thMinutes, // 60
       originHours = 0,
-      destHours   = 0,
-      tag         = "Baseline_D2_th60_noWeather"
+      destHours = 0,
+      tag = "Baseline_D2_th60_noWeather"
     )
 
     // =======================
@@ -459,32 +461,32 @@ object Main {
     // Origine seule
     hourGrid.foreach { h =>
       runOneExperiment(
-        ds          = "D2",
-        th          = th60,
+        ds = "D2",
+        th = th60,
         originHours = h,
-        destHours   = 0,
-        tag         = s"S1_origin_${h}h_D2_th60"
+        destHours = 0,
+        tag = s"S1_origin_${h}h_D2_th60"
       )
     }
 
     // Destination seule
     hourGrid.foreach { h =>
       runOneExperiment(
-        ds          = "D2",
-        th          = th60,
+        ds = "D2",
+        th = th60,
         originHours = 0,
-        destHours   = h,
-        tag         = s"S1_dest_${h}h_D2_th60"
+        destHours = h,
+        tag = s"S1_dest_${h}h_D2_th60"
       )
     }
 
     // Origine + destination : 7h + 7h
     runOneExperiment(
-      ds          = "D2",
-      th          = th60,
+      ds = "D2",
+      th = th60,
       originHours = 7,
-      destHours   = 7,
-      tag         = "S1_origin7h_dest7h_D2_th60"
+      destHours = 7,
+      tag = "S1_origin7h_dest7h_D2_th60"
     )
 
     // =======================
@@ -494,11 +496,11 @@ object Main {
 
     thGrid.foreach { thVal =>
       runOneExperiment(
-        ds          = "D2",
-        th          = thVal,
+        ds = "D2",
+        th = thVal,
         originHours = 7,
-        destHours   = 7,
-        tag         = s"S2_D2_th${thVal}_origin7h_dest7h"
+        destHours = 7,
+        tag = s"S2_D2_th${thVal}_origin7h_dest7h"
       )
     }
 
@@ -509,17 +511,16 @@ object Main {
 
     dsGrid.foreach { dsVal =>
       runOneExperiment(
-        ds          = dsVal,
-        th          = th60,
+        ds = dsVal,
+        th = th60,
         originHours = 7,
-        destHours   = 7,
-        tag         = s"S3_${dsVal}_th60_origin7h_dest7h"
+        destHours = 7,
+        tag = s"S3_${dsVal}_th60_origin7h_dest7h"
       )
     }
 
     logger.info("=== Étape Spark ML terminée ===")
   }
-
 
   // =======================
   // MAIN
