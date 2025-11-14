@@ -241,11 +241,12 @@ jobs:
           chmod +x run-app.sh
           ./run-app.sh --stage=gold
 
-      - name: Upload Gold analysis
+      # Sauvegarde du répertoire Delta produit par Gold
+      - name: Upload Delta Gold
         uses: actions/upload-artifact@v4
         with:
-          name: analysis-gold
-          path: analysis/
+          name: delta-gold
+          path: delta/
 
   # ============================================
   # Étape 6 — ML Stage (Modélisation)
