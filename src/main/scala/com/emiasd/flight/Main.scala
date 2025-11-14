@@ -390,6 +390,20 @@ object Main {
   ): Unit = {
     logger.info("=== Étape Spark ML ===")
 
+    // Vérification de la présence de la tables Gold
+    val goldJTExists = Readers.exists(paths.goldJT)
+
+    if (!goldJTExists) {
+      logger.warn(
+        "Aucune table Gold trouvée — lancement automatique de runGold()"
+      )
+      runGold(spark, paths, cfg)
+    } else {
+      logger.info(
+        "La table Gold est présente — passage direct à l'étape de Modélisation."
+      )
+    }
+
     // On retrouve la base gold comme dans runGold
     // ex : paths.goldJT = "/app/delta/gold/JT_th60"
     val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
@@ -456,8 +470,6 @@ object Main {
           runGold(spark, paths, cfg)
 
         case "ml" =>
-          // si tu veux être sûr que targets existe, tu peux faire :
-          runGold(spark, paths, cfg)
           runModeling(spark, paths, cfg)
 
         case "all" =>
