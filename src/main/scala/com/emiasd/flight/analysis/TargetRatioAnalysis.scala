@@ -1,10 +1,10 @@
 // com/emiasd/flight/analysis/TargetRatioAnalysis.scala
 package com.emiasd.flight.analysis
 
+import com.emiasd.flight.util.SparkSchemaUtils.hasPath
 import org.apache.log4j.Logger
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.types._
 
 import java.text.{DecimalFormat, DecimalFormatSymbols}
 import java.util.Locale
@@ -12,23 +12,6 @@ import java.util.Locale
 object TargetRatioAnalysis {
 
   val logger = Logger.getLogger(getClass.getName)
-
-  // Détection robuste de chemins (insensible à la casse, gère StructType)
-  private def hasPath(schema: StructType, path: String): Boolean = {
-    val parts = path.split("\\.")
-    def loop(st: StructType, i: Int): Boolean =
-      if (i >= parts.length) true
-      else
-        st.find(_.name.equalsIgnoreCase(parts(i))) match {
-          case Some(f) =>
-            f.dataType match {
-              case s: StructType => loop(s, i + 1)
-              case _             => i == parts.length - 1
-            }
-          case None => false
-        }
-    loop(schema, 0)
-  }
 
   private def firstExisting(
     df: DataFrame,
