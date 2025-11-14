@@ -1,6 +1,7 @@
 package com.emiasd.flight.config
 
 import com.typesafe.config.{Config, ConfigFactory}
+import org.apache.log4j.Logger
 
 import scala.collection.JavaConverters._ // Scala 2.12.x
 
@@ -38,6 +39,8 @@ final case class AppConfig(
 
 object AppConfig {
 
+  val logger = Logger.getLogger(getClass.getName)
+
   private def envOf(s: String): Environment = s match {
     case "Hadoop" => Environment.Hadoop
     case _        => Environment.Local
@@ -71,15 +74,15 @@ object AppConfig {
     // Chargement de la configuration externe si elle existe, sinon fallback sur ConfigFactory.load()
     val root = configPathOpt match {
       case Some(path) if new File(path).exists() =>
-        println(s"[AppConfig] Chargement du fichier externe : $path")
+        logger.info(s"[AppConfig] Chargement du fichier externe : $path")
         ConfigFactory.parseFile(new File(path)).resolve()
       case Some(path) =>
-        println(
+        logger.info(
           s"[AppConfig] ⚠️ Fichier indiqué mais introuvable à $path — fallback sur le conf embarqué."
         )
         ConfigFactory.load()
       case None =>
-        println(
+        logger.info(
           "[AppConfig] Aucun chemin externe fourni — chargement du conf embarqué (application.conf du JAR)."
         )
         ConfigFactory.load()
