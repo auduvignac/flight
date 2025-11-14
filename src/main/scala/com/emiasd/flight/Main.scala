@@ -101,8 +101,8 @@ object Main {
     logger.info("=== Étape SILVER ===")
 
     // Vérification de la présence des tables Bronze
-    val bronzeFlightsExists = Readers.exists(paths.bronzeFlights)
-    val bronzeWeatherExists = Readers.exists(paths.bronzeWeather)
+    val bronzeFlightsExists = Readers.exists(spark, paths.bronzeFlights)
+    val bronzeWeatherExists = Readers.exists(spark,  paths.bronzeWeather)
 
     if (!bronzeFlightsExists && !bronzeWeatherExists) {
       logger.warn(
@@ -189,8 +189,8 @@ object Main {
     logger.info("=== Étape GOLD ===")
 
     // Vérification de la présence des tables Silver
-    val silverFlightsExists = Readers.exists(paths.silverFlights)
-    val silverWeatherExists = Readers.exists(paths.silverWeatherFiltered)
+    val silverFlightsExists = Readers.exists(spark, paths.silverFlights)
+    val silverWeatherExists = Readers.exists(spark, paths.silverWeatherFiltered)
 
     if (!silverFlightsExists && !silverWeatherExists) {
       logger.warn(

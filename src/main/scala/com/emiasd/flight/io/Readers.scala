@@ -2,11 +2,11 @@
 package com.emiasd.flight.io
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import _root_.io.delta.tables.DeltaTable
 
 object Readers {
-  def exists(path: String): Boolean = {
-    val file = new java.io.File(path)
-    file.exists() && file.listFiles().nonEmpty
+  def exists(spark: SparkSession, path: String): Boolean = {
+    DeltaTable.isDeltaTable(spark, path)
   }
 
   def readCsv(
