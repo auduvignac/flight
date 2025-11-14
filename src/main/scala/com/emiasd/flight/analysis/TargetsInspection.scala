@@ -10,12 +10,12 @@ object TargetsInspection {
   val logger = Logger.getLogger(getClass.getName)
 
   def inspectSlice(
-                    spark: SparkSession,
-                    targetsPath: String,
-                    dsValue: String = "D2",
-                    thValue: Int    = 60,
-                    n: Int          = 20
-                  ): Unit = {
+    spark: SparkSession,
+    targetsPath: String,
+    dsValue: String = "D2",
+    thValue: Int = 60,
+    n: Int = 20
+  ): Unit = {
 
     val df = spark.read.format("delta").load(targetsPath)
 

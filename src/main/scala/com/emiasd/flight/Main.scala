@@ -320,23 +320,26 @@ object Main {
     // 2bis) Schéma explicite pour la table targets
     // (à ajuster si tu veux plus/moins de colonnes)
     val targetsDf = fullAll.select(
-      col("F"),            // struct vol
-      col("Wo"),           // météo origine
-      col("Wd"),           // météo destination
-      col("C"),            // label binaire
+      col("F"),  // struct vol
+      col("Wo"), // météo origine
+      col("Wd"), // météo destination
+      col("C"),  // label binaire
       col("flight_key"),
       col("year"),
       col("month"),
-      col("ds"),           // dataset : D1..D4
-      col("th"),           // seuil minutes
-      col("is_pos")        // label D* (balancé)
+      col("ds"),    // dataset : D1..D4
+      col("th"),    // seuil minutes
+      col("is_pos") // label D* (balancé)
     )
 
     // 3) Écriture unique et partitionnée ds/th/year/month
     val outRoot = s"$goldBase/targets"
 
     val toWrite =
-      if (targetsDf.columns.contains("year") && targetsDf.columns.contains("month"))
+      if (
+        targetsDf.columns
+          .contains("year") && targetsDf.columns.contains("month")
+      )
         targetsDf.repartition(col("ds"), col("th"), col("year"), col("month"))
       else
         targetsDf.repartition(col("ds"), col("th"))
@@ -348,10 +351,9 @@ object Main {
       overwriteSchema = true
     )
 
-
     logger.info("Étape Gold terminée avec succès.")
 
-    val targetsPath = outRoot   // déjà correctement défini
+    val targetsPath = outRoot // déjà correctement défini
     TargetsInspection.inspectSlice(
       spark,
       targetsPath,
@@ -362,7 +364,13 @@ object Main {
 
     // Inspection uniquement en mode Local, pour éviter le bruit en prod
     if (cfg.env == "Local") {
-      TargetsInspection.inspectSlice(spark, targetsPath, dsValue = "D2", thValue = 60, n = 20)
+      TargetsInspection.inspectSlice(
+        spark,
+        targetsPath,
+        dsValue = "D2",
+        thValue = 60,
+        n = 20
+      )
     }
   }
 
@@ -370,13 +378,14 @@ object Main {
   // Étape 4 : SPARK ML
   // =======================
   /**
-   * Étape ML : préparation du dataset (D2, th=cfg.thMinutes) + entraînement RandomForest
+   * Étape ML : préparation du dataset (D2, th=cfg.thMinutes) + entraînement
+   * RandomForest
    */
   def runModeling(
-                   spark: SparkSession,
-                   paths: IOPaths,
-                   cfg: AppConfig
-                 ): Unit = {
+    spark: SparkSession,
+    paths: IOPaths,
+    cfg: AppConfig
+  ): Unit = {
     logger.info("=== Étape Spark ML ===")
 
     // On retrouve la base gold comme dans runGold
@@ -396,9 +405,9 @@ object Main {
         ds,
         th,
         FeatureConfig(
-          labelCol     = "is_pos", // label équilibré (TIST-like)
+          labelCol = "is_pos", // label équilibré (TIST-like)
           testFraction = 0.2,
-          seed         = 42L
+          seed = 42L
         )
       )
 
