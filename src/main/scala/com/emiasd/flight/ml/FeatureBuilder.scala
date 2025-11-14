@@ -2,8 +2,8 @@
 package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
-import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object FeatureBuilder {
 
@@ -22,7 +22,6 @@ object FeatureBuilder {
    * Pour l'instant on ne prend que des features vols (sans météo).
    */
   def buildFlatFeatures(df: DataFrame, cfg: FeatureConfig)(implicit spark: SparkSession): DataFrame = {
-    import spark.implicits._
 
     // 1) Sélection et flatten du struct F
     val base = df.select(

@@ -2,7 +2,7 @@
 package com.emiasd.flight.analysis
 
 import org.apache.log4j.Logger
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 
 object TargetsInspection {
