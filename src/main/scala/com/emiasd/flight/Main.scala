@@ -9,7 +9,7 @@ import com.emiasd.flight.config.AppConfig
 import com.emiasd.flight.io.{Readers, Writers}
 import com.emiasd.flight.join.{BuildJT, FlightsEnriched}
 import com.emiasd.flight.ml.FeatureBuilder.FeatureConfig
-import com.emiasd.flight.ml.{FeatureBuilder, ModelingPipeline}
+import com.emiasd.flight.ml.{ExperimentConfig, FeatureBuilder, ModelingPipeline}
 import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{IOPaths, PathResolver, SparkBuilder}
 import com.emiasd.flight.targets.TargetBatch
@@ -382,141 +382,101 @@ object Main {
 
     logger.info("=== Étape Spark ML ===")
 
-    // Vérification de la présence de la tables Gold
+    // Vérification de la présence de la table Gold
     val goldJTExists = Readers.exists(spark, paths.goldJT)
 
     if (!goldJTExists) {
-      logger.warn(
-        "Aucune table Gold trouvée — lancement automatique de runGold()"
-      )
+      logger.warn("Aucune table Gold trouvée — lancement automatique de runGold()")
       runGold(spark, paths, cfg)
     } else {
-      logger.info(
-        "La table Gold est présente — passage direct à l'étape de Modélisation."
-      )
+      logger.info("La table Gold est présente — passage direct à l'étape de modélisation.")
     }
 
-    // On reconstruit le chemin des targets comme dans runGold
+    // Reconstruction du chemin des targets comme dans runGold
     val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
     val targetsPath = s"$goldBase/targets"
 
+    // Configuration de base pour les features
     val baseCfg = FeatureConfig(
       labelCol = "is_pos",
       testFraction = 0.2,
       seed = 42L
     )
 
-    // Helper pour lancer une expérience
-    def runOneExperiment(
-      ds: String,
-      th: Int,
-      originHours: Int,
-      destHours: Int,
-      tag: String
-    ): Unit = {
+    // =======================
+    // Liste des expériences
+    // =======================
+    val experiments: Seq[ExperimentConfig] = Seq(
+      // === Baseline (aucune météo)
+      ExperimentConfig("D2", cfg.thMinutes, 0, 0, "Baseline_D2_th60_noWeather"),
+
+      // === Étude 1 : impact du nombre d'heures météo ===
+      // Origine seule
+      ExperimentConfig("D2", cfg.thMinutes, 1, 0, "S1_origin_1h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 3, 0, "S1_origin_3h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 5, 0, "S1_origin_5h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 7, 0, "S1_origin_7h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 9, 0, "S1_origin_9h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 11, 0, "S1_origin_11h_D2_th60"),
+
+      // Destination seule
+      ExperimentConfig("D2", cfg.thMinutes, 0, 1, "S1_dest_1h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 3, "S1_dest_3h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 5, "S1_dest_5h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 7, "S1_dest_7h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 9, "S1_dest_9h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 11, "S1_dest_11h_D2_th60"),
+
+      // Origine + destination
+      ExperimentConfig("D2", cfg.thMinutes, 7, 7, "S1_origin7h_dest7h_D2_th60"),
+
+      // === Étude 2 : variation du seuil th ===
+      ExperimentConfig("D2", 15, 7, 7, "S2_D2_th15_origin7h_dest7h"),
+      ExperimentConfig("D2", 30, 7, 7, "S2_D2_th30_origin7h_dest7h"),
+      ExperimentConfig("D2", 45, 7, 7, "S2_D2_th45_origin7h_dest7h"),
+      ExperimentConfig("D2", 60, 7, 7, "S2_D2_th60_origin7h_dest7h"),
+      ExperimentConfig("D2", 90, 7, 7, "S2_D2_th90_origin7h_dest7h"),
+
+      // === Étude 3 : variation du dataset ===
+      ExperimentConfig("D1", cfg.thMinutes, 7, 7, "S3_D1_th60_origin7h_dest7h"),
+      ExperimentConfig("D3", cfg.thMinutes, 7, 7, "S3_D3_th60_origin7h_dest7h"),
+      ExperimentConfig("D4", cfg.thMinutes, 7, 7, "S3_D4_th60_origin7h_dest7h")
+    )
+
+    // =======================
+    // Fonction utilitaire pour exécuter une expérience
+    // =======================
+    def runOneExperiment(e: ExperimentConfig): Unit = {
       logger.info(
-        s"=== Expérience $tag : ds=$ds, th=$th, originHours=$originHours, destHours=$destHours ==="
+        s"=== Expérience ${e.tag} : ds=${e.ds}, th=${e.th}, originHours=${e.originHours}, destHours=${e.destHours} ==="
       )
 
       val (trainDF, testDF, extraNumCols) =
         FeatureBuilder.prepareDataset(
           spark,
           targetsPath,
-          ds,
-          th,
+          e.ds,
+          e.th,
           baseCfg,
-          originHours,
-          destHours
+          e.originHours,
+          e.destHours
         )
 
       ModelingPipeline.trainAndEvaluate(
         spark,
         trainDF,
         testDF,
-        ds,
-        th,
+        e.ds,
+        e.th,
         extraNumCols,
-        tag
+        e.tag
       )
     }
 
     // =======================
-    // BASELINE (0 météo) – D2, th=60
+    // Exécution de toutes les expériences
     // =======================
-    runOneExperiment(
-      ds = "D2",
-      th = cfg.thMinutes, // 60
-      originHours = 0,
-      destHours = 0,
-      tag = "Baseline_D2_th60_noWeather"
-    )
-
-    // =======================
-    // Étude 1 : impact nb heures météo (D2, th=60)
-    // =======================
-    val hourGrid = Seq(1, 3, 5, 7, 9, 11)
-    val th60     = cfg.thMinutes
-
-    // Origine seule
-    hourGrid.foreach { h =>
-      runOneExperiment(
-        ds = "D2",
-        th = th60,
-        originHours = h,
-        destHours = 0,
-        tag = s"S1_origin_${h}h_D2_th60"
-      )
-    }
-
-    // Destination seule
-    hourGrid.foreach { h =>
-      runOneExperiment(
-        ds = "D2",
-        th = th60,
-        originHours = 0,
-        destHours = h,
-        tag = s"S1_dest_${h}h_D2_th60"
-      )
-    }
-
-    // Origine + destination : 7h + 7h
-    runOneExperiment(
-      ds = "D2",
-      th = th60,
-      originHours = 7,
-      destHours = 7,
-      tag = "S1_origin7h_dest7h_D2_th60"
-    )
-
-    // =======================
-    // Étude 2 : variation du seuil th (D2, 7h + 7h)
-    // =======================
-    val thGrid = Seq(15, 30, 45, 60, 90)
-
-    thGrid.foreach { thVal =>
-      runOneExperiment(
-        ds = "D2",
-        th = thVal,
-        originHours = 7,
-        destHours = 7,
-        tag = s"S2_D2_th${thVal}_origin7h_dest7h"
-      )
-    }
-
-    // =======================
-    // Étude 3 : variation dataset D1..D4 (th=60, 7h + 7h)
-    // =======================
-    val dsGrid = Seq("D1", "D2", "D3", "D4")
-
-    dsGrid.foreach { dsVal =>
-      runOneExperiment(
-        ds = dsVal,
-        th = th60,
-        originHours = 7,
-        destHours = 7,
-        tag = s"S3_${dsVal}_th60_origin7h_dest7h"
-      )
-    }
+    experiments.foreach(runOneExperiment)
 
     logger.info("=== Étape Spark ML terminée ===")
   }
