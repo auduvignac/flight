@@ -375,10 +375,14 @@ object Main {
     val goldJTExists = Readers.exists(spark, paths.goldJT)
 
     if (!goldJTExists) {
-      logger.warn("Aucune table Gold trouvée — lancement automatique de runGold()")
+      logger.warn(
+        "Aucune table Gold trouvée — lancement automatique de runGold()"
+      )
       runGold(spark, paths, cfg)
     } else {
-      logger.info("La table Gold est présente — passage direct à l'étape de modélisation.")
+      logger.info(
+        "La table Gold est présente — passage direct à l'étape de modélisation."
+      )
     }
 
     // Reconstruction du chemin des targets comme dans runGold

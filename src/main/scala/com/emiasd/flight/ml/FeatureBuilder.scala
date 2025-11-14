@@ -126,7 +126,10 @@ object FeatureBuilder {
           val outCol    = s"${prefix}_h${h}_${v}" // ex: o_h0_vis
           dfAcc.withColumn(
             outCol,
-            coalesce(structCol.getField(fieldName).cast(DoubleType), lit(Double.NaN))
+            coalesce(
+              structCol.getField(fieldName).cast(DoubleType),
+              lit(Double.NaN)
+            )
           )
         }
       }
