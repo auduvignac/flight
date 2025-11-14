@@ -18,17 +18,20 @@ object BuildJT {
   ): DataFrame = {
 
     // 1) Grille horaire: 13 timestamps cibles [ts-12h .. ts] pas 1h
+    val targetsColName = s"${prefix}_targets"
+    val targetColName  = s"${prefix}_target"
+
     val fWithGrid = fBase
       .withColumn(
-        s"${prefix}_targets",
+        targetsColName,
         sequence(
           col(tsColInF) - expr("INTERVAL 12 HOURS"),
           col(tsColInF),
           expr("INTERVAL 1 HOURS")
         )
       )
-      .withColumn(s"${prefix}_target", explode(col(s"${prefix}_targets")))
-      .drop(s"${prefix}_targets")
+      .withColumn(targetColName, explode(col(targetsColName)))
+      .drop(col(targetsColName))
 
     // 2) Candidats météo dans la tolérance ±toleranceMin
     val joined = fWithGrid.join(
