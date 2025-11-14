@@ -30,22 +30,21 @@ fi
 LOG_CONF=${LOG_CONFIG_PATH:-/opt/spark/conf/log4j2.properties}
 # --- application configuration ---
 CFG_FILE=${APPLICATION_CONFIG_PATH:-/opt/config/application.conf}
+# --- configuration spark ---
+SPARK_CONF="/opt/spark/conf/spark.conf"
 
 echo "=============================================="
 echo "🚀 Lancement de Spark"
 echo "=============================================="
-echo "🧱 JAR          : $JAR"
-echo "🏷️  Classe      : $MAIN_CLASS"
-echo "🪵 Log4j conf   : $LOG_CONF"
-echo "🪵 flight conf  : $CFG_FILE"
+echo "JAR         : $JAR"
+echo "Classe      : $MAIN_CLASS"
+echo "Log4j conf  : $LOG_CONF"
+echo "flight conf : $CFG_FILE"
+echo "spark conf  : $SPARK_CONF"
+echo "stage       : $STAGE"
 echo "=============================================="
 
-# --- Submit Spark job ---
 spark-submit \
-  --master spark://spark-master:7077 \
+  --properties-file "$SPARK_CONF" \
   --class "$MAIN_CLASS" \
-  --conf "spark.driver.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF" \
-  --conf "spark.executor.extraJavaOptions=-Dfile.encoding=UTF-8 -Dlog4j.configuration=$LOG_CONF" \
-  --conf "spark.app.config=$CFG_FILE" \
-  "$JAR" \
-  "$STAGE"
+  "$JAR" "$STAGE"

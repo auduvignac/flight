@@ -1,29 +1,43 @@
+x-env-common: &common-env
+  LOG_CONFIG_PATH: /opt/spark/conf/log4j2.properties
+  APPLICATION_CONFIG_PATH: /opt/config/application.conf
+  SPARK_MASTER_URL: spark://spark-master:7077
+  SPARK_LOCAL_DIRS: /opt/spark/local
+  SPARK_CONF: /opt/spark/conf/spark.conf
+
 services:
   spark-master:
     image: ghcr.io/auduvignac/flight:latest
     container_name: spark-master
     environment:
-      - SPARK_MODE=master
-      - SPARK_MASTER_HOST=spark-master
-      - ROLE=MASTER
+      <<: *common-env
+      SPARK_MODE: master
+      SPARK_MASTER_HOST: spark-master
+      ROLE: MASTER
     volumes:
       - ./data:/app/data
       - ./delta:/app/delta
+      - ./spark-local:/opt/spark/local
+      - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
+      - ./conf/application.conf:/opt/config/application.conf:ro
+      - ./conf/log4j2-submit.properties:/opt/spark/conf/log4j2.properties:ro
     ports:
-      - "8080:8080"  # Spark UI (master)
-      - "7077:7077"  # Spark master service port
+      - "8080:8080"
+      - "7077:7077"
     restart: unless-stopped
 
   spark-worker:
     image: ghcr.io/auduvignac/flight:latest
     container_name: spark-worker
     environment:
-      - SPARK_MODE=worker
-      - SPARK_MASTER_URL=spark://spark-master:7077
-      - ROLE=WORKER
+      <<: *common-env
+      SPARK_MODE: worker
+      ROLE: WORKER
     volumes:
       - ./data:/app/data
       - ./delta:/app/delta
+      - ./spark-local:/opt/spark/local
+      - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
     depends_on:
       - spark-master
     restart: unless-stopped
@@ -32,12 +46,17 @@ services:
     image: ghcr.io/auduvignac/flight:latest
     container_name: spark-submit
     environment:
-      - SPARK_MODE=submit
-      - SPARK_MASTER_URL=spark://spark-master:7077
-      - ROLE=SUBMIT
+      <<: *common-env
+      SPARK_MODE: submit
+      ROLE: SUBMIT
     volumes:
       - ./data:/app/data
       - ./delta:/app/delta
+      - ./spark-local:/opt/spark/local
+      - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
+      - ./conf/application.conf:/opt/config/application.conf:ro
+      - ./conf/log4j2-submit.properties:/opt/spark/conf/log4j2.properties:ro
+      - ./spark-submit.sh:/app/spark-submit.sh:ro
     working_dir: /app
     depends_on:
       - spark-master

@@ -6,8 +6,10 @@ project/target/
 project/project/
 data/
 delta/
+spark-local/
 .metals/
 .bloop/
+.bsp/
 .idea/
 .ensime_cache/
 *.class

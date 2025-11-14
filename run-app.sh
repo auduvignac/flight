@@ -75,6 +75,9 @@ fi
 echo "🧹 Arrêt de tout cluster Spark existant..."
 docker rm -f spark-submit spark-worker spark-master >/dev/null 2>&1 || true
 
+echo " Création du répertoire local de shuffle..."
+mkdir -p ./spark-local   # +++ support shuffle local
+
 echo "🚀 Démarrage du cluster Spark..."
 docker compose up -d
 
@@ -126,7 +129,6 @@ docker cp "$ASSEMBLY_JAR" spark-submit:/app/flight-assembly.jar
 # =========================================================
 echo "⚙️  Préparation du script spark-submit.sh..."
 docker exec spark-submit dos2unix /app/spark-submit.sh >/dev/null 2>&1 || true
-docker exec spark-submit chmod +x /app/spark-submit.sh
 
 # =========================================================
 # Étape 5 : Soumission du job Spark
