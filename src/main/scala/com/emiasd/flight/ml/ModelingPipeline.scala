@@ -47,6 +47,7 @@ object ModelingPipeline {
       .setFeatureSubsetStrategy("sqrt")
       .setSubsamplingRate(1.0)
       .setMinInstancesPerNode(10)
+      .setMaxBins(512)
       .setSeed(42L)
 
     // Typage explicite pour éviter l'erreur "overloaded method Array"
