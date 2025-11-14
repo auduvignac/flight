@@ -2,7 +2,7 @@
 package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 
 object FeatureBuilder {
@@ -23,21 +23,39 @@ object FeatureBuilder {
     "altim", "slp", "stnp", "precip"
   )
 
-  /**
-   * Noms des colonnes de features météo en fonction du nombre d'heures
+  // =====================================================================
+  // 1) Noms des features météo agrégés
+  // =====================================================================
+  /*
+   * Noms des colonnes de features météo agrégés.
+   *
+   * On utilise des agrégats simples par côté (origine/destination) :
+   *  - vis_avg, temp_avg, wind_avg, precip_sum
+   *  - has_precip, has_heavy_precip, has_low_vis
+   *  - has_ts, has_sn, has_fg
+   *
+   * => 10 features par côté.
    */
+
   def weatherFeatureNames(originHours: Int, destHours: Int): Array[String] = {
+    val perSide = Seq(
+      "vis_avg",
+      "temp_avg",
+      "wind_avg",
+      "precip_sum",
+      "has_precip",
+      "has_heavy_precip",
+      "has_low_vis",
+      "has_ts",
+      "has_sn",
+      "has_fg"
+    )
+
     val originCols =
-      for {
-        h <- 0 until originHours
-        v <- wxNumericVars
-      } yield s"o_h${h}_${v}"
+      if (originHours > 0) perSide.map(n => s"o_$n") else Seq.empty
 
     val destCols =
-      for {
-        h <- 0 until destHours
-        v <- wxNumericVars
-      } yield s"d_h${h}_${v}"
+      if (destHours > 0) perSide.map(n => s"d_$n") else Seq.empty
 
     (originCols ++ destCols).toArray
   }
@@ -92,10 +110,22 @@ object FeatureBuilder {
   }
 
 
+
+  // =====================================================================
+  // 2) Ajout des features météo agrégés Wo / Wd
+  // =====================================================================
   /**
-   * Ajout dynamique des features météo Wo/Wd
-   * originHours = nombre d'observations à l’origine (Wo)
-   * destHours   = nombre d'observations à destination (Wd)
+   * Ajout de features météo agrégés à partir de Wo / Wd.
+   *
+   * originHours = taille de la fenêtre à l'origine  (Wo)
+   * destHours   = taille de la fenêtre à destination (Wd)
+   *
+   * Pour chaque côté, on crée :
+   *  - vis_avg, temp_avg, wind_avg, precip_sum
+   *  - has_precip, has_heavy_precip, has_low_vis
+   *  - has_ts, has_sn, has_fg
+   *
+   * Pas de min/max => pas de Infinity / -Infinity dans les features.
    */
   def addWeatherFeatures(
                           df: DataFrame,
@@ -105,43 +135,96 @@ object FeatureBuilder {
 
     import spark.implicits._
 
-    var out = df
+    // Helper générique pour un côté :
+    //  prefix = "o" (origine) ou "d" (destination)
+    //  arrCol = "Wo" ou "Wd"
+    //  hours  = taille de fenêtre (1,3,5,7,9,11)
+    def addSide(prefix: String, arrCol: String, hours: Int)(dfIn: DataFrame): DataFrame = {
+      if (hours <= 0) return dfIn
 
-    def addSide(prefix: String, arrCol: String, hours: Int): Unit = {
-      // prefix = "o" ou "d", arrCol = "Wo" ou "Wd"
-      for {
-        h <- 0 until hours
-      } {
-        val structCol = col(arrCol).getItem(h) // O(A, t-h) ou D(A, t-h)
-        wxNumericVars.foreach { v =>
-          val fieldName = s"${prefix}_${v}"           // ex: o_vis, d_tempC, ...
-          val outCol    = s"${prefix}_h${h}_${v}"     // ex: o_h0_vis
+      // Séquence de struct: Wo[h] / Wd[h]
+      val rows: Seq[Column] = (0 until hours).map(h => col(arrCol).getItem(h))
 
-          out = out.withColumn(
-            outCol,
-            coalesce(
-              structCol.getField(fieldName).cast("double"),
-              lit(0.0)
-            )
-          )
-        }
+      // === Helpers numériques ===
+      def numCols(fieldSuffix: String): Seq[Column] =
+        rows.map(_.getField(s"${prefix}_$fieldSuffix").cast("double"))
+
+      def safeSum(cols: Seq[Column]): Column =
+        cols
+          .map(c => coalesce(c, lit(0.0)))
+          .reduce((c1, c2) => c1 + c2)
+
+      def anyCond(cols: Seq[Column])(f: Column => Column): Column =
+        cols.map(f).reduce((c1, c2) => c1.or(c2))
+
+      // Colonnes numériques par variable
+      val visCols    = numCols("vis")
+      val tempCols   = numCols("tempC")
+      val windCols   = numCols("windKt")
+      val precipCols = numCols("precip")
+
+      // Colonnes catégorielles (type météo)
+      val wxCols: Seq[Column] =
+        rows.map(_.getField(s"${prefix}_wxType").cast("string"))
+
+      // === Agrégats numériques (moyennes / somme) ===
+      val visAvgCol    = safeSum(visCols)    / lit(hours.toDouble)
+      val tempAvgCol   = safeSum(tempCols)   / lit(hours.toDouble)
+      val windAvgCol   = safeSum(windCols)   / lit(hours.toDouble)
+      val precipSumCol = safeSum(precipCols)
+
+      // === Flags continus ===
+      val hasPrecipCol = anyCond(precipCols) { c =>
+        coalesce(c, lit(0.0)) > lit(0.0)
       }
+
+      val hasHeavyPrecipCol = anyCond(precipCols) { c =>
+        coalesce(c, lit(0.0)) >= lit(2.0) // seuil "forte pluie"
+      }
+
+      val hasLowVisCol = anyCond(visCols) { c =>
+        c.isNotNull.and(c < lit(1.0)) // visibilité très faible
+      }
+
+      // === Flags catégoriels à partir de wxType ===
+      val hasTsCol = anyCond(wxCols) { c =>
+        c.isNotNull.and(c.like("%TS%"))
+      }
+
+      val hasSnCol = anyCond(wxCols) { c =>
+        c.isNotNull.and(c.like("%SN%"))
+      }
+
+      val hasFgCol = anyCond(wxCols) { c =>
+        c.isNotNull.and(c.like("%FG%"))
+      }
+
+      // === Application des colonnes au DataFrame ===
+      dfIn
+        .withColumn(s"${prefix}_vis_avg",    coalesce(visAvgCol,    lit(0.0)))
+        .withColumn(s"${prefix}_temp_avg",   coalesce(tempAvgCol,   lit(0.0)))
+        .withColumn(s"${prefix}_wind_avg",   coalesce(windAvgCol,   lit(0.0)))
+        .withColumn(s"${prefix}_precip_sum", coalesce(precipSumCol, lit(0.0)))
+        .withColumn(s"${prefix}_has_precip",       hasPrecipCol.cast("double"))
+        .withColumn(s"${prefix}_has_heavy_precip", hasHeavyPrecipCol.cast("double"))
+        .withColumn(s"${prefix}_has_low_vis",      hasLowVisCol.cast("double"))
+        .withColumn(s"${prefix}_has_ts",           hasTsCol.cast("double"))
+        .withColumn(s"${prefix}_has_sn",           hasSnCol.cast("double"))
+        .withColumn(s"${prefix}_has_fg",           hasFgCol.cast("double"))
     }
 
-    if (originHours > 0) {
-      addSide(prefix = "o", arrCol = "Wo", hours = originHours)
-    }
+    // Application conditionnelle aux deux côtés
+    val withOrigin =
+      if (originHours > 0) addSide("o", "Wo", originHours)(df) else df
 
-    if (destHours > 0) {
-      addSide(prefix = "d", arrCol = "Wd", hours = destHours)
-    }
+    val withDest =
+      if (destHours > 0) addSide("d", "Wd", destHours)(withOrigin) else withOrigin
 
-    // Optionnel : on droppe Wo/Wd pour avoir un DF plus propre
-    out = out.drop("Wo", "Wd")
+    // Optionnel : nettoyer Wo/Wd si tu ne les utilises plus :
+    // withDest.drop("Wo", "Wd")
 
-    out
+    withDest
   }
-
 
   /**
    * Fonction principale :

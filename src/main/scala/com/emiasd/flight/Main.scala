@@ -293,6 +293,8 @@ object Main {
       )
       .show(5, truncate = false)
 
+    /*
+    // nous avons établi tau comme optimal à 0,95. Inutile de le recalculer à chaque fois.
     TargetRatioAnalysis.run(
       jt = jtCheck,
       outDir = "analysis/targets",
@@ -301,7 +303,7 @@ object Main {
       tolTau1Strict = 1e-6,
       tolTau1Loose = 0.01
     )
-
+    */
     // === Génération D1..D4 x Th via batch unique ===
     import com.emiasd.flight.targets.TargetBatch
 
