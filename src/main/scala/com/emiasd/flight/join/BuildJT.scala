@@ -84,7 +84,7 @@ object BuildJT {
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
     thMinutes: Int,
-    toleranceMin: Int = 45 // /!\ toleranceMin n'est jamais utilisé
+    toleranceMin: Int = 45
   ): DataFrame = {
 
     // ========= OPTIMS MÉTÉO =========
