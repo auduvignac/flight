@@ -246,3 +246,50 @@ jobs:
         with:
           name: analysis-gold
           path: analysis/
+
+  # ============================================
+  # Étape 6 — ML Stage (Modélisation)
+  # ============================================
+  ml:
+    name: 🧠 ML - Feature Engineering & Modeling
+    needs: gold
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 📦 Restaure le dataset depuis le cache
+      - name: Restore dataset from cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: dataset-v1
+
+      # Récupère le Delta produit par Gold
+      - name: Download Delta Gold
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-gold
+          path: delta/
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download compiled JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: flight-assembly
+          path: target/scala-2.12
+
+      - name: Run ML stage
+        run: |
+          chmod +x run-app.sh
+          ./run-app.sh --stage=ml
+
+      - name: Upload ML analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-ml
+          path: analysis/
