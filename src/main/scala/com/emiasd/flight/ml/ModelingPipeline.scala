@@ -2,12 +2,12 @@
 package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
-import org.apache.spark.ml.{Pipeline, PipelineModel, PipelineStage}
 import org.apache.spark.ml.classification.RandomForestClassifier
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.ml.{Pipeline, PipelineModel, PipelineStage}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object ModelingPipeline {
 
@@ -18,9 +18,10 @@ object ModelingPipeline {
 
   def buildRandomForestPipeline(extraNumCols: Array[String]): Pipeline = {
 
-    val catCols: Array[String] = Array("carrier_id", "origin_id", "dest_id", "month")
+    val catCols: Array[String] =
+      Array("carrier_id", "origin_id", "dest_id", "month")
     val baseNumCols: Array[String] = Array("dep_minutes", "year")
-    val numCols: Array[String] = baseNumCols ++ extraNumCols
+    val numCols: Array[String]     = baseNumCols ++ extraNumCols
 
     val indexers: Array[PipelineStage] = catCols.map { c =>
       new StringIndexer()
@@ -41,7 +42,7 @@ object ModelingPipeline {
       .setFeatureSubsetStrategy("sqrt")
       .setSubsamplingRate(1.0)
       .setMinInstancesPerNode(10)
-      .setMaxBins(512)          // nécessaire vu le nb de catégories
+      .setMaxBins(512) // nécessaire vu le nb de catégories
       .setSeed(42L)
 
     val stages: Array[PipelineStage] =
@@ -51,14 +52,14 @@ object ModelingPipeline {
   }
 
   def trainAndEvaluate(
-                        spark: SparkSession,
-                        trainDF: DataFrame,
-                        testDF: DataFrame,
-                        ds: String,
-                        th: Int,
-                        extraNumCols: Array[String],
-                        tag: String
-                      ): PipelineModel = {
+    spark: SparkSession,
+    trainDF: DataFrame,
+    testDF: DataFrame,
+    ds: String,
+    th: Int,
+    extraNumCols: Array[String],
+    tag: String
+  ): PipelineModel = {
 
     import spark.implicits._
 
@@ -71,7 +72,9 @@ object ModelingPipeline {
 
     val model: PipelineModel = pipeline.fit(trainDF)
 
-    logger.info(s"[ModelingPipeline] Évaluation sur test set (ds=$ds, th=$th, tag=$tag)")
+    logger.info(
+      s"[ModelingPipeline] Évaluation sur test set (ds=$ds, th=$th, tag=$tag)"
+    )
     val predictions: DataFrame = model.transform(testDF).cache()
 
     val evaluatorAuc = new BinaryClassificationEvaluator()
@@ -107,12 +110,15 @@ object ModelingPipeline {
       .as[Double]
       .first()
 
-    logger.info(f"[ModelingPipeline] [$tag] ds=$ds th=$th  ->  AUC ROC = $auc%.4f,  AUC PR = $prAuc%.4f")
-    logger.info(f"[ModelingPipeline] [$tag] ds=$ds th=$th  ->  Accuracy = $accuracy%.4f, Recall = $recall%.4f, Precision = $precision%.4f")
+    logger.info(
+      f"[ModelingPipeline] [$tag] ds=$ds th=$th  ->  AUC ROC = $auc%.4f,  AUC PR = $prAuc%.4f"
+    )
+    logger.info(
+      f"[ModelingPipeline] [$tag] ds=$ds th=$th  ->  Accuracy = $accuracy%.4f, Recall = $recall%.4f, Precision = $precision%.4f"
+    )
 
     predictions.unpersist()
 
     model
   }
 }
-
