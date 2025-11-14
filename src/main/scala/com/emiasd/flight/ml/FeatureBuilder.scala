@@ -8,20 +8,23 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 object FeatureBuilder {
 
   val logger = Logger.getLogger(getClass.getName)
+
   /**
    * Configuration pour la préparation dataset
    */
   case class FeatureConfig(
-                            labelCol: String   = "is_pos", // tu peux mettre "C" si tu veux le label brut
-                            testFraction: Double = 0.2,
-                            seed: Long          = 42L
-                          )
+    labelCol: String = "is_pos", // tu peux mettre "C" si tu veux le label brut
+    testFraction: Double = 0.2,
+    seed: Long = 42L
+  )
 
   /**
-   * Flatten de la table targets (gold/targets) vers une table de features "flat".
-   * Pour l'instant on ne prend que des features vols (sans météo).
+   * Flatten de la table targets (gold/targets) vers une table de features
+   * "flat". Pour l'instant on ne prend que des features vols (sans météo).
    */
-  def buildFlatFeatures(df: DataFrame, cfg: FeatureConfig)(implicit spark: SparkSession): DataFrame = {
+  def buildFlatFeatures(df: DataFrame, cfg: FeatureConfig)(implicit
+    spark: SparkSession
+  ): DataFrame = {
 
     // 1) Sélection et flatten du struct F
     val base = df.select(
@@ -49,8 +52,9 @@ object FeatureBuilder {
     )
 
     // 3) Nettoyage de base : on évite les nulls critiques
-    val cleaned = withDepMinutes
-      .na.drop("any", Seq(
+    val cleaned = withDepMinutes.na.drop(
+      "any",
+      Seq(
         "label",
         "carrier_id",
         "origin_id",
@@ -59,25 +63,25 @@ object FeatureBuilder {
         "year",
         "month",
         "dep_minutes"
-      ))
+      )
+    )
 
     cleaned
   }
 
-
   /**
    * Fonction demandée :
    *
-   * Lit gold/targets, filtre sur ds/th, construit les features,
-   * puis renvoie (trainDF, testDF) prêts pour Spark ML.
+   * Lit gold/targets, filtre sur ds/th, construit les features, puis renvoie
+   * (trainDF, testDF) prêts pour Spark ML.
    */
   def prepareDataset(
-                      spark: SparkSession,
-                      targetsPath: String,
-                      ds: String,
-                      th: Int,
-                      cfg: FeatureConfig = FeatureConfig()
-                    ): (DataFrame, DataFrame) = {
+    spark: SparkSession,
+    targetsPath: String,
+    ds: String,
+    th: Int,
+    cfg: FeatureConfig = FeatureConfig()
+  ): (DataFrame, DataFrame) = {
 
     implicit val s: SparkSession = spark
 
@@ -90,13 +94,17 @@ object FeatureBuilder {
 
     // (optionnel) petit log
     val n = slice.count()
-    logger.info(s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n lignes avant features")
+    logger.info(
+      s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n lignes avant features"
+    )
 
     // 2) Construction des features "flat"
     val features = buildFlatFeatures(slice, cfg)
 
     val n2 = features.count()
-    logger.info(s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n2 lignes après nettoyage features")
+    logger.info(
+      s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n2 lignes après nettoyage features"
+    )
 
     // 3) Split train / test
     val Array(train, test) = features.randomSplit(

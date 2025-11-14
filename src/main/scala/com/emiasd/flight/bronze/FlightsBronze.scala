@@ -19,7 +19,8 @@ object FlightsBronze {
 
     logger.info(s"Lecture du fichier : $flightInputs")
 
-    val raw = Readers.readCsv(spark, flightInputs)
+    val raw = Readers
+      .readCsv(spark, flightInputs)
       .select(flightsSelected.map(col): _*)
 
     val tz = Readers

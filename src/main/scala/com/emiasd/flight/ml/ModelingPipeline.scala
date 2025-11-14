@@ -24,7 +24,8 @@ object ModelingPipeline {
    */
   def buildRandomForestPipeline(): Pipeline = {
 
-    val catCols: Array[String] = Array("carrier_id", "origin_id", "dest_id", "month")
+    val catCols: Array[String] =
+      Array("carrier_id", "origin_id", "dest_id", "month")
     val numCols: Array[String] = Array("dep_minutes", "year")
 
     val indexers: Array[PipelineStage] = catCols.map { c =>
@@ -56,22 +57,24 @@ object ModelingPipeline {
   }
 
   /**
-   * Entraîne le pipeline sur trainDF, évalue sur testDF,
-   * et retourne le modèle entraîné.
+   * Entraîne le pipeline sur trainDF, évalue sur testDF, et retourne le modèle
+   * entraîné.
    */
   def trainAndEvaluate(
-                        spark: SparkSession,
-                        trainDF: DataFrame,
-                        testDF: DataFrame,
-                        ds: String,
-                        th: Int
-                      ): PipelineModel = {
+    spark: SparkSession,
+    trainDF: DataFrame,
+    testDF: DataFrame,
+    ds: String,
+    th: Int
+  ): PipelineModel = {
 
     import spark.implicits._
 
     val pipeline: Pipeline = buildRandomForestPipeline()
 
-    logger.info(s"[ModelingPipeline] Entraînement RandomForest (ds=$ds, th=$th)")
+    logger.info(
+      s"[ModelingPipeline] Entraînement RandomForest (ds=$ds, th=$th)"
+    )
     val model: PipelineModel = pipeline.fit(trainDF)
 
     logger.info(s"[ModelingPipeline] Évaluation sur test set (ds=$ds, th=$th)")
@@ -114,8 +117,12 @@ object ModelingPipeline {
       .as[Double]
       .first()
 
-    logger.info(f"[ModelingPipeline] ds=$ds th=$th  ->  AUC ROC = $auc%.4f,  AUC PR = $prAuc%.4f")
-    logger.info(f"[ModelingPipeline] ds=$ds th=$th  ->  Accuracy = $accuracy%.4f, Recall = $recall%.4f, Precision = $precision%.4f")
+    logger.info(
+      f"[ModelingPipeline] ds=$ds th=$th  ->  AUC ROC = $auc%.4f,  AUC PR = $prAuc%.4f"
+    )
+    logger.info(
+      f"[ModelingPipeline] ds=$ds th=$th  ->  Accuracy = $accuracy%.4f, Recall = $recall%.4f, Precision = $precision%.4f"
+    )
 
     predictions.unpersist()
 
