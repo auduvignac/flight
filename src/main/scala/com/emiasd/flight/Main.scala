@@ -350,7 +350,7 @@ object Main {
 
     logger.info("Étape Gold terminée avec succès.")
 
-    val targetsPath = outRoot // déjà correctement défini
+    val targetsPath = outRoot
     TargetsInspection.inspectSlice(
       spark,
       targetsPath,
@@ -358,17 +358,6 @@ object Main {
       thValue = 60,
       n = 20
     )
-
-    // Inspection uniquement en mode Local, pour éviter le bruit en prod
-    if (cfg.env == "Local") {
-      TargetsInspection.inspectSlice(
-        spark,
-        targetsPath,
-        dsValue = "D2",
-        thValue = 60,
-        n = 20
-      )
-    }
   }
 
   // =======================
