@@ -379,57 +379,147 @@ object Main {
   // =======================
   // Étape 4 : SPARK ML
   // =======================
-  /**
-   * Étape ML : préparation du dataset (D2, th=cfg.thMinutes) + entraînement
-   * RandomForest
-   */
   def runModeling(
-    spark: SparkSession,
-    paths: IOPaths,
-    cfg: AppConfig
-  ): Unit = {
-    logger.info("=== Étape Spark ML ===")
+                   spark: SparkSession,
+                   paths: IOPaths,
+                   cfg: AppConfig
+                 ): Unit = {
 
-    // Vérification de la présence de la tables Gold
-    val goldJTExists = Readers.exists(paths.goldJT)
-
-    if (!goldJTExists) {
-      logger.warn(
-        "Aucune table Gold trouvée — lancement automatique de runGold()"
-      )
-      runGold(spark, paths, cfg)
-    } else {
-      logger.info(
-        "La table Gold est présente — passage direct à l'étape de Modélisation."
-      )
-    }
-
-    // On retrouve la base gold comme dans runGold
-    // ex : paths.goldJT = "/app/delta/gold/JT_th60"
+    // On reconstruit le chemin des targets comme dans runGold
     val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
     val targetsPath = s"$goldBase/targets"
 
-    val ds = "D2"          // dataset cible principal (comme dans TIST)
-    val th = cfg.thMinutes // typiquement 60
+    logger.info("=== Étape Spark ML ===")
 
-    logger.info(s"=== Étape ML : préparation du dataset ds=$ds, th=$th ===")
+    // Petit check au cas où
+    if (!Readers.exists(targetsPath)) {
+      logger.error(s"Table GOLD targets introuvable à $targetsPath")
+      throw new IllegalStateException(s"Missing Delta table at $targetsPath")
+    } else {
+      logger.info("La table Gold est présente — passage direct à l'étape de Modélisation.")
+    }
 
-    val (trainDF, testDF) =
-      FeatureBuilder.prepareDataset(
-        spark,
-        targetsPath,
-        ds,
-        th,
-        FeatureConfig(
-          labelCol = "is_pos", // label équilibré (TIST-like)
-          testFraction = 0.2,
-          seed = 42L
-        )
+    val baseCfg = FeatureConfig(
+      labelCol     = "is_pos",
+      testFraction = 0.2,
+      seed         = 42L
+    )
+
+    // Helper pour lancer une expérience
+    def runOneExperiment(
+                          ds: String,
+                          th: Int,
+                          originHours: Int,
+                          destHours: Int,
+                          tag: String
+                        ): Unit = {
+      logger.info(
+        s"=== Expérience $tag : ds=$ds, th=$th, originHours=$originHours, destHours=$destHours ==="
       )
 
-    logger.info(s"=== Étape ML : entraînement RandomForest ds=$ds, th=$th ===")
-    ModelingPipeline.trainAndEvaluate(spark, trainDF, testDF, ds, th)
+      val (trainDF, testDF, extraNumCols) =
+        FeatureBuilder.prepareDataset(
+          spark,
+          targetsPath,
+          ds,
+          th,
+          baseCfg,
+          originHours,
+          destHours
+        )
+
+      ModelingPipeline.trainAndEvaluate(
+        spark,
+        trainDF,
+        testDF,
+        ds,
+        th,
+        extraNumCols,
+        tag
+      )
+    }
+
+    // =======================
+    // BASELINE (0 météo) – D2, th=60
+    // =======================
+    runOneExperiment(
+      ds          = "D2",
+      th          = cfg.thMinutes, // 60
+      originHours = 0,
+      destHours   = 0,
+      tag         = "Baseline_D2_th60_noWeather"
+    )
+
+    // =======================
+    // Étude 1 : impact nb heures météo (D2, th=60)
+    // =======================
+    val hourGrid = Seq(1, 3, 5, 7, 9, 11)
+    val th60     = cfg.thMinutes
+
+    // Origine seule
+    hourGrid.foreach { h =>
+      runOneExperiment(
+        ds          = "D2",
+        th          = th60,
+        originHours = h,
+        destHours   = 0,
+        tag         = s"S1_origin_${h}h_D2_th60"
+      )
+    }
+
+    // Destination seule
+    hourGrid.foreach { h =>
+      runOneExperiment(
+        ds          = "D2",
+        th          = th60,
+        originHours = 0,
+        destHours   = h,
+        tag         = s"S1_dest_${h}h_D2_th60"
+      )
+    }
+
+    // Origine + destination : 7h + 7h
+    runOneExperiment(
+      ds          = "D2",
+      th          = th60,
+      originHours = 7,
+      destHours   = 7,
+      tag         = "S1_origin7h_dest7h_D2_th60"
+    )
+
+    // =======================
+    // Étude 2 : variation du seuil th (D2, 7h + 7h)
+    // =======================
+    val thGrid = Seq(15, 30, 45, 60, 90)
+
+    thGrid.foreach { thVal =>
+      runOneExperiment(
+        ds          = "D2",
+        th          = thVal,
+        originHours = 7,
+        destHours   = 7,
+        tag         = s"S2_D2_th${thVal}_origin7h_dest7h"
+      )
+    }
+
+    // =======================
+    // Étude 3 : variation dataset D1..D4 (th=60, 7h + 7h)
+    // =======================
+    val dsGrid = Seq("D1", "D2", "D3", "D4")
+
+    dsGrid.foreach { dsVal =>
+      runOneExperiment(
+        ds          = dsVal,
+        th          = th60,
+        originHours = 7,
+        destHours   = 7,
+        tag         = s"S3_${dsVal}_th60_origin7h_dest7h"
+      )
+    }
+
+    logger.info("=== Étape Spark ML terminée ===")
   }
+
 
   // =======================
   // MAIN
