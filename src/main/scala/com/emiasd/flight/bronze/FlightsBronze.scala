@@ -19,9 +19,14 @@ object FlightsBronze {
 
     logger.info(s"Lecture du fichier : $flightInputs")
 
-    val raw = Readers
-      .readCsv(spark, flightInputs)
-      .select(flightsSelected.map(col): _*)
+    val rawDf = Readers.readCsv(spark, flightInputs)
+    val rawColumns = rawDf.columns.toSet
+    val missingColumns = flightsSelected.filterNot(rawColumns.contains)
+    if (missingColumns.nonEmpty) {
+      logger.error(s"Missing columns in input file: ${missingColumns.mkString(", ")}")
+      throw new IllegalArgumentException(s"Missing columns in input file: ${missingColumns.mkString(", ")}")
+    }
+    val raw = rawDf.select(flightsSelected.map(col): _*)
 
     val tz = Readers
       .readCsv(spark, Seq(wbanTzPath))
