@@ -3,7 +3,7 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
-import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetsInspection}
+import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetRatioAnalysis, TargetsInspection}
 import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
 import com.emiasd.flight.config.AppConfig
 import com.emiasd.flight.io.{Readers, Writers}
@@ -12,6 +12,7 @@ import com.emiasd.flight.ml.FeatureBuilder.FeatureConfig
 import com.emiasd.flight.ml.{FeatureBuilder, ModelingPipeline}
 import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{IOPaths, PathResolver, SparkBuilder}
+import com.emiasd.flight.targets.TargetBatch
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
@@ -280,9 +281,6 @@ object Main {
       .show(10, false)
 
     // === Analyse τ pour D1 ===
-    import com.emiasd.flight.analysis.TargetRatioAnalysis
-    // /!\ ss jamais utilisé => à supprimer ?
-    // implicit val ss: SparkSession = spark  // implicite dispo pour TargetRatioAnalysis / TargetBatch
 
     jtCheck
       .select(
@@ -303,7 +301,6 @@ object Main {
     )
 
     // === Génération D1..D4 x Th via batch unique ===
-    import com.emiasd.flight.targets.TargetBatch
 
     val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
     val tau      = 0.95
@@ -383,21 +380,25 @@ object Main {
     cfg: AppConfig
   ): Unit = {
 
-    // On reconstruit le chemin des targets comme dans runGold
-    val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
-    val targetsPath = s"$goldBase/targets"
-
     logger.info("=== Étape Spark ML ===")
 
-    // Petit check au cas où
-    if (!Readers.exists(targetsPath)) {
-      logger.error(s"Table GOLD targets introuvable à $targetsPath")
-      throw new IllegalStateException(s"Missing Delta table at $targetsPath")
+    // Vérification de la présence de la tables Gold
+    val goldJTExists = Readers.exists(spark, paths.goldJT)
+
+    if (!goldJTExists) {
+      logger.warn(
+        "Aucune table Gold trouvée — lancement automatique de runGold()"
+      )
+      runGold(spark, paths, cfg)
     } else {
       logger.info(
         "La table Gold est présente — passage direct à l'étape de Modélisation."
       )
     }
+
+    // On reconstruit le chemin des targets comme dans runGold
+    val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
+    val targetsPath = s"$goldBase/targets"
 
     val baseCfg = FeatureConfig(
       labelCol = "is_pos",
