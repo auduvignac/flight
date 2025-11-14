@@ -2,12 +2,12 @@
 package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
-import org.apache.spark.ml.{Pipeline, PipelineModel, PipelineStage}
 import org.apache.spark.ml.classification.RandomForestClassifier
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
-import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.ml.{Pipeline, PipelineModel, PipelineStage}
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object ModelingPipeline {
 

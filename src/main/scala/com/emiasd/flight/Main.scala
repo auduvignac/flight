@@ -8,10 +8,10 @@ import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
 import com.emiasd.flight.config.AppConfig
 import com.emiasd.flight.io.{Readers, Writers}
 import com.emiasd.flight.join.{BuildJT, FlightsEnriched}
+import com.emiasd.flight.ml.FeatureBuilder.FeatureConfig
+import com.emiasd.flight.ml.{FeatureBuilder, ModelingPipeline}
 import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{IOPaths, PathResolver, SparkBuilder}
-import com.emiasd.flight.ml.{FeatureBuilder, ModelingPipeline}
-import com.emiasd.flight.ml.FeatureBuilder.FeatureConfig
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
