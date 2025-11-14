@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Bronze / Silver / Gold)
 
 on:
   push:
-    branches: [main, feature/gold-join]
+    branches: [main, feature/model-training-stage]
   pull_request:
   workflow_dispatch:
 
