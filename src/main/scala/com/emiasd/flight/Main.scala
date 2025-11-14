@@ -537,7 +537,7 @@ object Main {
       logger.info(s"IO paths resolved: $paths")
 
       // Option : exécuter une seule étape si argument fourni
-      val allowedStages = Set("bronze", "silver", "gold", "all")
+      val allowedStages = Set("bronze", "silver", "gold", "ml", "all")
       val stage         = args.headOption.getOrElse("all").toLowerCase
       if (!allowedStages.contains(stage)) {
         logger.error(
