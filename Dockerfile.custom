@@ -36,8 +36,7 @@ COPY flight-assembly.jar /app/flight-assembly.jar
 # Copie des fichiers de configuration Spark
 # ============================================================
 COPY ./conf/spark.conf /opt/spark/conf/spark.conf
-COPY ./conf/log4j2.properties /opt/spark/conf/log4j2.properties
-COPY ./conf/log4j2-submit.properties /opt/spark/conf/log4j2-submit.properties
+COPY log4j2-submit.properties /opt/spark/conf/log4j2.properties
 
 # ============================================================
 # Copie des fichiers de configuration applicative
