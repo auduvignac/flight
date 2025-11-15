@@ -10,6 +10,7 @@ BUILD=false
 LOCAL=true
 RESET=false
 STAGE="all"
+DATA_DIR_PATH=${DATA_PATH:-./data}
 
 # === Parsing des arguments ===
 while [[ $# -gt 0 ]]; do
@@ -34,7 +35,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ "$LOCAL" = true ]; then
-  if [ ! -d "./data" ] || [ -z "$(ls -A ./data)" ]; then
+  if [ ! -d "$DATA_DIR_PATH" ] || [ -z "$(ls -A $DATA_DIR_PATH)" ]; then
     echo "[run-app] Dataset manquant. Arrêt."
     exit 1
   fi
