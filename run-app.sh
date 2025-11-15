@@ -41,6 +41,9 @@ if [ "$LOCAL" = true ]; then
   fi
   echo "[run-app] Mode local détecté : dataset présent, exécution Spark directe."
   ./spark-submit.sh "$STAGE"
+  echo ""
+  echo "✅ Job Spark terminé avec succès."
+  exit 0
 fi
 
 ASSEMBLY_JAR="target/scala-2.12/flight-assembly.jar"
