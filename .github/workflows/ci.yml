@@ -28,7 +28,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dataset
-          path: /app/data/
+          path: data/
 
   # ============================================
   # Étape 1 — Build Scala & Quality Checks
