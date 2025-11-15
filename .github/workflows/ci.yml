@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Bronze / Silver / Gold)
 
 on:
   push:
-    branches: [main, feature/gold-join]
+    branches: [main, feature/model-training-stage]
   pull_request:
   workflow_dispatch:
 
@@ -241,8 +241,56 @@ jobs:
           chmod +x run-app.sh
           ./run-app.sh --stage=gold
 
-      - name: Upload Gold analysis
+      # Sauvegarde du répertoire Delta produit par Gold
+      - name: Upload Delta Gold
         uses: actions/upload-artifact@v4
         with:
-          name: analysis-gold
+          name: delta-gold
+          path: delta/
+
+  # ============================================
+  # Étape 6 — ML Stage (Modélisation)
+  # ============================================
+  ml:
+    name: 🧠 ML - Feature Engineering & Modeling
+    needs: gold
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 📦 Restaure le dataset depuis le cache
+      - name: Restore dataset from cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: dataset-v1
+
+      # Récupère le Delta produit par Gold
+      - name: Download Delta Gold
+        uses: actions/download-artifact@v4
+        with:
+          name: delta-gold
+          path: delta/
+
+      - name: Setup Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download compiled JAR
+        uses: actions/download-artifact@v4
+        with:
+          name: flight-assembly
+          path: target/scala-2.12
+
+      - name: Run ML stage
+        run: |
+          chmod +x run-app.sh
+          ./run-app.sh --stage=ml
+
+      - name: Upload ML analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-ml
           path: analysis/

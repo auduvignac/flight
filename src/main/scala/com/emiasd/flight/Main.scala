@@ -3,13 +3,16 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
-import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis}
+import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetRatioAnalysis, TargetsInspection}
 import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
 import com.emiasd.flight.config.AppConfig
 import com.emiasd.flight.io.{Readers, Writers}
 import com.emiasd.flight.join.{BuildJT, FlightsEnriched}
+import com.emiasd.flight.ml.FeatureBuilder.FeatureConfig
+import com.emiasd.flight.ml.{ExperimentConfig, FeatureBuilder, ModelingPipeline}
 import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{IOPaths, PathResolver, SparkBuilder}
+import com.emiasd.flight.targets.TargetBatch
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
@@ -278,9 +281,6 @@ object Main {
       .show(10, false)
 
     // === Analyse τ pour D1 ===
-    import com.emiasd.flight.analysis.TargetRatioAnalysis
-    // /!\ ss jamais utilisé => à supprimer ?
-    // implicit val ss: SparkSession = spark  // implicite dispo pour TargetRatioAnalysis / TargetBatch
 
     jtCheck
       .select(
@@ -301,7 +301,6 @@ object Main {
     )
 
     // === Génération D1..D4 x Th via batch unique ===
-    import com.emiasd.flight.targets.TargetBatch
 
     val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
     val tau      = 0.95
@@ -315,13 +314,32 @@ object Main {
     val fullAll =
       TargetBatch.materializeAll(jtCheck, keysAll, includeLightCols = true)
 
+    // 2bis) Schéma explicite pour la table targets
+    // (à ajuster si tu veux plus/moins de colonnes)
+    val targetsDf = fullAll.select(
+      col("F"),  // struct vol
+      col("Wo"), // météo origine
+      col("Wd"), // météo destination
+      col("C"),  // label binaire
+      col("flight_key"),
+      col("year"),
+      col("month"),
+      col("ds"),    // dataset : D1..D4
+      col("th"),    // seuil minutes
+      col("is_pos") // label D* (balancé)
+    )
+
     // 3) Écriture unique et partitionnée ds/th/year/month
     val outRoot = s"$goldBase/targets"
+
     val toWrite =
-      if (fullAll.columns.contains("year") && fullAll.columns.contains("month"))
-        fullAll.repartition(col("ds"), col("th"), col("year"), col("month"))
+      if (
+        targetsDf.columns
+          .contains("year") && targetsDf.columns.contains("month")
+      )
+        targetsDf.repartition(col("ds"), col("th"), col("year"), col("month"))
       else
-        fullAll.repartition(col("ds"), col("th"))
+        targetsDf.repartition(col("ds"), col("th"))
 
     Writers.writeDelta(
       toWrite,
@@ -331,6 +349,129 @@ object Main {
     )
 
     logger.info("Étape Gold terminée avec succès.")
+
+    val targetsPath = outRoot
+    TargetsInspection.inspectSlice(
+      spark,
+      targetsPath,
+      dsValue = "D2",
+      thValue = 60,
+      n = 20
+    )
+  }
+
+  // =======================
+  // Étape 4 : SPARK ML
+  // =======================
+  def runModeling(
+    spark: SparkSession,
+    paths: IOPaths,
+    cfg: AppConfig
+  ): Unit = {
+
+    logger.info("=== Étape Spark ML ===")
+
+    // Vérification de la présence de la table Gold
+    val goldJTExists = Readers.exists(spark, paths.goldJT)
+
+    if (!goldJTExists) {
+      logger.warn(
+        "Aucune table Gold trouvée — lancement automatique de runGold()"
+      )
+      runGold(spark, paths, cfg)
+    } else {
+      logger.info(
+        "La table Gold est présente — passage direct à l'étape de modélisation."
+      )
+    }
+
+    // Reconstruction du chemin des targets comme dans runGold
+    val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
+    val targetsPath = s"$goldBase/targets"
+
+    // Configuration de base pour les features
+    val baseCfg = FeatureConfig(
+      labelCol = "is_pos",
+      testFraction = 0.2,
+      seed = 42L
+    )
+
+    // =======================
+    // Liste des expériences
+    // =======================
+    val experiments: Seq[ExperimentConfig] = Seq(
+      // === Baseline (aucune météo)
+      ExperimentConfig("D2", cfg.thMinutes, 0, 0, "Baseline_D2_th60_noWeather"),
+
+      // === Étude 1 : impact du nombre d'heures météo ===
+      // Origine seule
+      ExperimentConfig("D2", cfg.thMinutes, 1, 0, "S1_origin_1h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 3, 0, "S1_origin_3h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 5, 0, "S1_origin_5h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 7, 0, "S1_origin_7h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 9, 0, "S1_origin_9h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 11, 0, "S1_origin_11h_D2_th60"),
+
+      // Destination seule
+      ExperimentConfig("D2", cfg.thMinutes, 0, 1, "S1_dest_1h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 3, "S1_dest_3h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 5, "S1_dest_5h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 7, "S1_dest_7h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 9, "S1_dest_9h_D2_th60"),
+      ExperimentConfig("D2", cfg.thMinutes, 0, 11, "S1_dest_11h_D2_th60"),
+
+      // Origine + destination
+      ExperimentConfig("D2", cfg.thMinutes, 7, 7, "S1_origin7h_dest7h_D2_th60"),
+
+      // === Étude 2 : variation du seuil th ===
+      ExperimentConfig("D2", 15, 7, 7, "S2_D2_th15_origin7h_dest7h"),
+      ExperimentConfig("D2", 30, 7, 7, "S2_D2_th30_origin7h_dest7h"),
+      ExperimentConfig("D2", 45, 7, 7, "S2_D2_th45_origin7h_dest7h"),
+      ExperimentConfig("D2", 60, 7, 7, "S2_D2_th60_origin7h_dest7h"),
+      ExperimentConfig("D2", 90, 7, 7, "S2_D2_th90_origin7h_dest7h"),
+
+      // === Étude 3 : variation du dataset ===
+      ExperimentConfig("D1", cfg.thMinutes, 7, 7, "S3_D1_th60_origin7h_dest7h"),
+      ExperimentConfig("D3", cfg.thMinutes, 7, 7, "S3_D3_th60_origin7h_dest7h"),
+      ExperimentConfig("D4", cfg.thMinutes, 7, 7, "S3_D4_th60_origin7h_dest7h")
+    )
+
+    // =======================
+    // Fonction utilitaire pour exécuter une expérience
+    // =======================
+    def runOneExperiment(e: ExperimentConfig): Unit = {
+      logger.info(
+        s"=== Expérience ${e.tag} : ds=${e.ds}, th=${e.th}, originHours=${e.originHours}, destHours=${e.destHours} ==="
+      )
+
+      val (trainDF, testDF, extraNumCols) =
+        FeatureBuilder.prepareDataset(
+          spark,
+          targetsPath,
+          e.ds,
+          e.th,
+          baseCfg,
+          e.originHours,
+          e.destHours
+        )
+
+      ModelingPipeline.trainAndEvaluate(
+        spark,
+        trainDF,
+        testDF,
+        e.ds,
+        e.th,
+        extraNumCols,
+        e.tag
+      )
+    }
+
+    // =======================
+    // Exécution de toutes les expériences
+    // =======================
+    experiments.foreach(runOneExperiment)
+
+    logger.info("=== Étape Spark ML terminée ===")
   }
 
   // =======================
@@ -349,7 +490,7 @@ object Main {
       logger.info(s"IO paths resolved: $paths")
 
       // Option : exécuter une seule étape si argument fourni
-      val allowedStages = Set("bronze", "silver", "gold", "all")
+      val allowedStages = Set("bronze", "silver", "gold", "ml", "all")
       val stage         = args.headOption.getOrElse("all").toLowerCase
       if (!allowedStages.contains(stage)) {
         logger.error(
@@ -367,10 +508,14 @@ object Main {
         case "gold" =>
           runGold(spark, paths, cfg)
 
+        case "ml" =>
+          runModeling(spark, paths, cfg)
+
         case "all" =>
           runBronze(spark, paths)
           runSilver(spark, paths)
           runGold(spark, paths, cfg)
+          runModeling(spark, paths, cfg)
       }
 
       logger.info("Application terminée avec succès.")

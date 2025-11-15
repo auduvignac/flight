@@ -2,6 +2,7 @@
 package com.emiasd.flight.bronze
 
 import com.emiasd.flight.io.Readers
+import com.emiasd.flight.io.Schemas._
 import com.emiasd.flight.util.DFUtils._
 import org.apache.log4j.Logger
 import org.apache.spark.sql.functions._
@@ -18,7 +19,18 @@ object FlightsBronze {
 
     logger.info(s"Lecture du fichier : $flightInputs")
 
-    val raw = Readers.readCsv(spark, flightInputs)
+    val rawDf          = Readers.readCsv(spark, flightInputs)
+    val rawColumns     = rawDf.columns.toSet
+    val missingColumns = flightsSelected.filterNot(rawColumns.contains)
+    if (missingColumns.nonEmpty) {
+      logger.error(
+        s"Missing columns in input file: ${missingColumns.mkString(", ")}"
+      )
+      throw new IllegalArgumentException(
+        s"Missing columns in input file: ${missingColumns.mkString(", ")}"
+      )
+    }
+    val raw = rawDf.select(flightsSelected.map(col): _*)
 
     val tz = Readers
       .readCsv(spark, Seq(wbanTzPath))
