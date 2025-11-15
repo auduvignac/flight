@@ -28,7 +28,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dataset
-          path: data/
+          path: /app/data/
 
   # ============================================
   # Étape 1 — Build Scala & Quality Checks
@@ -140,7 +140,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dataset
-          path: data/
+          path: /app/data/
 
       - name: Run Bronze stage
         run: ./run-app.sh --stage=bronze --local
@@ -175,7 +175,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dataset
-          path: data/
+          path: /app/data/
 
       - name: Download Delta Bronze
         uses: actions/download-artifact@v4
@@ -216,7 +216,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dataset
-          path: data/
+          path: /app/data/
 
       - name: Download Delta Silver
         uses: actions/download-artifact@v4
@@ -251,7 +251,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dataset
-          path: data/
+          path: /app/data/
 
       - name: Download Delta Gold
         uses: actions/download-artifact@v4
