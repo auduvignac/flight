@@ -7,14 +7,19 @@ set -e  # Stop on first error
 
 # === Paramètres par défaut ===
 BUILD=false
+LOCAL=false
 RESET=false
 STAGE="all"
+DATA_DIR_PATH=${DATA_PATH:-./data}
 
 # === Parsing des arguments ===
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build)
     BUILD=true
+    ;;
+    --local)
+    LOCAL=true
     ;;
     --reset)
     RESET=true
@@ -28,6 +33,18 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [ "$LOCAL" = true ]; then
+  if [ ! -d "$DATA_DIR_PATH" ] || [ -z "$(ls -A $DATA_DIR_PATH)" ]; then
+    echo "[run-app] Dataset manquant. Arrêt."
+    exit 1
+  fi
+  echo "[run-app] Mode local détecté : dataset présent, exécution Spark directe."
+  ./spark-submit.sh "$STAGE"
+  echo ""
+  echo "✅ Job Spark terminé avec succès."
+  exit 0
+fi
 
 ASSEMBLY_JAR="target/scala-2.12/flight-assembly.jar"
 
