@@ -36,16 +36,13 @@ COPY flight-assembly.jar /app/flight-assembly.jar
 # Copie des fichiers de configuration Spark
 # ============================================================
 COPY ./conf/spark.conf /opt/spark/conf/spark.conf
-COPY log4j2-submit.properties /opt/spark/conf/log4j2.properties
+COPY ./conf/log4j2-submit.properties /opt/spark/conf/log4j2.properties
 
 # ============================================================
 # Copie des fichiers de configuration applicative
 # ============================================================
 RUN mkdir -p /opt/config /app/conf
 COPY ./conf/application.conf /opt/config/application.conf
-
-# Copie de compatibilité pour les scripts (utilise log4j2-submit)
-COPY ./conf/log4j2-submit.properties /app/conf/log4j.properties
 
 # ============================================================
 # Permissions et répertoire de travail
