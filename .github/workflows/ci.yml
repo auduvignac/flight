@@ -1,17 +1,44 @@
-name: CI/CD - Flight Project (Bronze / Silver / Gold)
+name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, feature/model-training-stage]
+    branches: [main, feature/ci-runtime-dataset-optimization]
   pull_request:
   workflow_dispatch:
 
 jobs:
   # ============================================
+  # Étape 0 — Préparation du Dataset
+  # ============================================
+  prepare-dataset:
+    name: 📦 Prepare Dataset
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure unzip and wget are available
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y unzip wget curl
+
+      - name: Run dataset preparation script
+        run: |
+          chmod +x get-data.sh
+          ./get-data.sh
+
+      - name: Cache dataset for reuse
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: dataset-v1
+
+  # ============================================
   # Étape 1 — Build Scala & Quality Checks
   # ============================================
   scala-build:
-    name: Scala Build & Tests
+    name: 🧩 Scala Build & Tests
     runs-on: ubuntu-latest
 
     steps:
@@ -58,6 +85,7 @@ jobs:
       # Tests unitaires
       - name: Run tests
         run: sbt test
+
       # Génération du JAR pour l'étape Docker
       - name: Build Assembly JAR
         run: sbt clean assembly
@@ -72,7 +100,7 @@ jobs:
   # Étape 2 — Build Docker image
   # ============================================
   docker-build:
-    name: Build and Push Docker Image
+    name: 🐳 Build & Push Runtime Docker Image
     needs: scala-build
     runs-on: ubuntu-latest
     permissions:
@@ -83,7 +111,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Récupérer le JAR depuis l'étape précédente
       - name: Download built JAR
         uses: actions/download-artifact@v4
         with:
@@ -104,34 +131,23 @@ jobs:
   # ============================================
   bronze:
     name: 🟤 Bronze - Ingestion & Enrichment
-    needs: [scala-build, docker-build]
+    needs: [prepare-dataset, docker-build]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    container:
+      image: ghcr.io/auduvignac/flight:latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 📦 Cache dataset (réutilisable par Silver & Gold)
-      - name: Cache dataset
+      - name: Restore dataset
         uses: actions/cache@v4
         with:
           path: data
           key: dataset-v1
 
-      - name: Setup Docker
-        uses: docker/setup-buildx-action@v3
-
-      - name: Download compiled JAR
-        uses: actions/download-artifact@v4
-        with:
-          name: flight-assembly
-          path: target/scala-2.12
-
       - name: Run Bronze stage
-        run: |
-          chmod +x run-app.sh
-          ./run-app.sh --reset --stage=bronze
+        run: ./run-app.sh --stage=bronze --local
 
       - name: Upload Bronze analysis
         uses: actions/upload-artifact@v4
@@ -139,7 +155,6 @@ jobs:
           name: analysis-bronze
           path: analysis/
 
-      # Sauvegarde du répertoire Delta produit par Bronze
       - name: Upload Delta Bronze
         uses: actions/upload-artifact@v4
         with:
@@ -153,39 +168,27 @@ jobs:
     name: ⚪ Silver - Cleaning & Standardization
     needs: bronze
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    container:
+      image: ghcr.io/auduvignac/flight:latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 📦 Restaure le dataset depuis le cache
-      - name: Restore dataset from cache
+      - name: Restore dataset
         uses: actions/cache@v4
         with:
           path: data
           key: dataset-v1
 
-      # Récupère le répertoire Delta du Bronze
       - name: Download Delta Bronze
         uses: actions/download-artifact@v4
         with:
           name: delta-bronze
           path: delta/
 
-      - name: Setup Docker
-        uses: docker/setup-buildx-action@v3
-
-      - name: Download compiled JAR
-        uses: actions/download-artifact@v4
-        with:
-          name: flight-assembly
-          path: target/scala-2.12
-
       - name: Run Silver stage
-        run: |
-          chmod +x run-app.sh
-          ./run-app.sh --stage=silver
+        run: ./run-app.sh --stage=silver --local
 
       - name: Upload Silver analysis
         uses: actions/upload-artifact@v4
@@ -193,7 +196,6 @@ jobs:
           name: analysis-silver
           path: analysis/
 
-      # Sauvegarde du répertoire Delta produit par Silver
       - name: Upload Delta Silver
         uses: actions/upload-artifact@v4
         with:
@@ -207,41 +209,28 @@ jobs:
     name: 🟡 Gold - Final Join & QA
     needs: silver
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    container:
+      image: ghcr.io/auduvignac/flight:latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 📦 Restaure le dataset depuis le cache
-      - name: Restore dataset from cache
+      - name: Restore dataset
         uses: actions/cache@v4
         with:
           path: data
           key: dataset-v1
 
-      # Récupère le Delta produit par Silver
       - name: Download Delta Silver
         uses: actions/download-artifact@v4
         with:
           name: delta-silver
           path: delta/
 
-      - name: Setup Docker
-        uses: docker/setup-buildx-action@v3
-
-      - name: Download compiled JAR
-        uses: actions/download-artifact@v4
-        with:
-          name: flight-assembly
-          path: target/scala-2.12
-
       - name: Run Gold stage
-        run: |
-          chmod +x run-app.sh
-          ./run-app.sh --stage=gold
+        run: ./run-app.sh --stage=gold --local
 
-      # Sauvegarde du répertoire Delta produit par Gold
       - name: Upload Delta Gold
         uses: actions/upload-artifact@v4
         with:
@@ -249,45 +238,33 @@ jobs:
           path: delta/
 
   # ============================================
-  # Étape 6 — ML Stage (Modélisation)
+  # Étape 6 — ML Stage
   # ============================================
   ml:
     name: 🧠 ML - Feature Engineering & Modeling
     needs: gold
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    container:
+      image: ghcr.io/auduvignac/flight:latest
+    timeout-minutes: 40
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      # 📦 Restaure le dataset depuis le cache
-      - name: Restore dataset from cache
+      - name: Restore dataset
         uses: actions/cache@v4
         with:
           path: data
           key: dataset-v1
 
-      # Récupère le Delta produit par Gold
       - name: Download Delta Gold
         uses: actions/download-artifact@v4
         with:
           name: delta-gold
           path: delta/
 
-      - name: Setup Docker
-        uses: docker/setup-buildx-action@v3
-
-      - name: Download compiled JAR
-        uses: actions/download-artifact@v4
-        with:
-          name: flight-assembly
-          path: target/scala-2.12
-
       - name: Run ML stage
-        run: |
-          chmod +x run-app.sh
-          ./run-app.sh --stage=ml
+        run: ./run-app.sh --stage=ml --local
 
       - name: Upload ML analysis
         uses: actions/upload-artifact@v4
