@@ -181,7 +181,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: delta-bronze
-          path: delta/
+          path: /app/delta/
 
       - name: Run Silver stage
         run: ./run-app.sh --stage=silver --local
@@ -222,7 +222,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: delta-silver
-          path: delta/
+          path: /app/delta/
 
       - name: Run Gold stage
         run: ./run-app.sh --stage=gold --local
@@ -257,7 +257,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: delta-gold
-          path: delta/
+          path: /app/delta/
 
       - name: Run ML stage
         run: ./run-app.sh --stage=ml --local
