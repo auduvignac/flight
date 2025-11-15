@@ -1,3 +1,6 @@
+# ============================================================
+# Image Spark personnalisée pour le projet Flight
+# ============================================================
 FROM ghcr.io/osekoo/spark:3.5
 
 LABEL maintainer="auduvignac <aurelienduvignac@hotmail.fr>"
@@ -5,28 +8,53 @@ LABEL description="Image Spark autonome pour le projet Flight"
 
 USER root
 
-# ==============================================
+# ============================================================
 # Variables d'environnement globales
-# ==============================================
+# ============================================================
 ENV JAR=/app/flight-assembly.jar \
     LOG_CONF=/app/conf/log4j.properties \
     MAIN_CLASS=com.emiasd.flight.Main \
     LOG_CONFIG_PATH=/opt/spark/conf/log4j2.properties \
     APPLICATION_CONFIG_PATH=/opt/config/application.conf \
-    SPARK_CONFIG_PATH=/opt/spark/conf/spark.conf
+    SPARK_CONFIG_PATH=/opt/spark/conf/spark.conf \
+    SPARK_HOME=/opt/spark \
+    PATH=$SPARK_HOME/bin:$PATH
 
+# ============================================================
 # Copie des scripts applicatifs
+# ============================================================
 COPY run-app.sh /app/run-app.sh
 COPY spark-submit.sh /app/spark-submit.sh
 COPY get-data.sh /app/get-data.sh
 
-# Copie du JAR généré par sbt (utilisation du chemin explicite)
+# ============================================================
+# Copie du JAR généré par sbt
+# ============================================================
 COPY flight-assembly.jar /app/flight-assembly.jar
 
-# Donne les droits d’exécution
-RUN chmod +x /app/*.sh
+# ============================================================
+# Copie des fichiers de configuration Spark
+# ============================================================
+COPY ./conf/spark.conf /opt/spark/conf/spark.conf
+COPY ./conf/log4j2.properties /opt/spark/conf/log4j2.properties
+COPY ./conf/log4j2-submit.properties /opt/spark/conf/log4j2-submit.properties
 
+# ============================================================
+# Copie des fichiers de configuration applicative
+# ============================================================
+RUN mkdir -p /opt/config /app/conf
+COPY ./conf/application.conf /opt/config/application.conf
+
+# Copie de compatibilité pour les scripts (utilise log4j2-submit)
+COPY ./conf/log4j2-submit.properties /app/conf/log4j.properties
+
+# ============================================================
+# Permissions et répertoire de travail
+# ============================================================
+RUN chmod +x /app/*.sh
 WORKDIR /app
 
-# --- Commande par défaut : conteneur en attente ---
+# ============================================================
+# Commande par défaut (conteneur en attente)
+# ============================================================
 CMD ["tail", "-f", "/dev/null"]
