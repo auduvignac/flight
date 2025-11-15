@@ -7,7 +7,7 @@ set -e  # Stop on first error
 
 # === Paramètres par défaut ===
 BUILD=false
-LOCAL=true
+LOCAL=false
 RESET=false
 STAGE="all"
 DATA_DIR_PATH=${DATA_PATH:-./data}
