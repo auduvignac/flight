@@ -17,22 +17,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Ensure unzip and wget are available
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y unzip wget curl
-
+        run: sudo apt-get update -y && sudo apt-get install -y unzip wget curl
       - name: Run dataset preparation script
         run: |
           chmod +x get-data.sh
           ./get-data.sh
 
-      - name: Cache dataset for reuse
-        uses: actions/cache@v4
+      - name: Upload dataset artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: data
-          key: dataset-v1
+          name: dataset
+          path: data/
 
   # ============================================
   # Étape 1 — Build Scala & Quality Checks
@@ -140,11 +136,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore dataset
-        uses: actions/cache@v4
+      - name: Download dataset
+        uses: actions/download-artifact@v4
         with:
-          path: data
-          key: dataset-v1
+          name: dataset
+          path: data/
 
       - name: Run Bronze stage
         run: ./run-app.sh --stage=bronze --local
@@ -175,11 +171,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore dataset
-        uses: actions/cache@v4
+      - name: Download dataset
+        uses: actions/download-artifact@v4
         with:
-          path: data
-          key: dataset-v1
+          name: dataset
+          path: data/
 
       - name: Download Delta Bronze
         uses: actions/download-artifact@v4
@@ -216,11 +212,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore dataset
-        uses: actions/cache@v4
+      - name: Download dataset
+        uses: actions/download-artifact@v4
         with:
-          path: data
-          key: dataset-v1
+          name: dataset
+          path: data/
 
       - name: Download Delta Silver
         uses: actions/download-artifact@v4
@@ -251,11 +247,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore dataset
-        uses: actions/cache@v4
+      - name: Download dataset
+        uses: actions/download-artifact@v4
         with:
-          path: data
-          key: dataset-v1
+          name: dataset
+          path: data/
 
       - name: Download Delta Gold
         uses: actions/download-artifact@v4
