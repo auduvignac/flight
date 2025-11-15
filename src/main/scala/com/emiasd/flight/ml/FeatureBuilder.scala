@@ -36,17 +36,20 @@ object FeatureBuilder {
    * Noms des colonnes de features météo en fonction du nombre d'heures
    */
   def weatherFeatureNames(originHours: Int, destHours: Int): Array[String] = {
+    // Génération des colonnes météo et leurs indicateurs "_isna"
     val originCols =
       for {
-        h <- 0 until originHours
-        v <- wxNumericVars
-      } yield s"o_h${h}_${v}"
+        h      <- 0 until originHours
+        v      <- wxNumericVars
+        suffix <- Seq("", "_isna")
+      } yield s"o_h${h}_${v}${suffix}"
 
     val destCols =
       for {
-        h <- 0 until destHours
-        v <- wxNumericVars
-      } yield s"d_h${h}_${v}"
+        h      <- 0 until destHours
+        v      <- wxNumericVars
+        suffix <- Seq("", "_isna")
+      } yield s"d_h${h}_${v}${suffix}"
 
     (originCols ++ destCols).toArray
   }
@@ -122,15 +125,19 @@ object FeatureBuilder {
       (0 until hours).foldLeft(dfIn) { (acc, h) =>
         val structCol = col(arrCol).getItem(h)
         wxNumericVars.foldLeft(acc) { (dfAcc, v) =>
-          val fieldName = s"${prefix}_${v}"       // ex: o_vis, d_tempC
+          val fieldName = s"${prefix}_${v}"       // ex: o_vis
           val outCol    = s"${prefix}_h${h}_${v}" // ex: o_h0_vis
-          dfAcc.withColumn(
-            outCol,
-            coalesce(
-              structCol.getField(fieldName).cast(DoubleType),
-              lit(Double.NaN)
+
+          dfAcc
+            .withColumn(
+              outCol,
+              coalesce(structCol.getField(fieldName).cast(DoubleType), lit(0.0))
             )
-          )
+            .withColumn(
+              s"${outCol}_isna",
+              when(structCol.getField(fieldName).isNull, lit(1.0))
+                .otherwise(lit(0.0))
+            )
         }
       }
 
