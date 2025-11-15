@@ -135,14 +135,42 @@ object FeatureBuilder {
 
     import spark.implicits._
 
-    // Helper générique pour un côté :
-    //  prefix = "o" (origine) ou "d" (destination)
-    //  arrCol = "Wo" ou "Wd"
-    //  hours  = taille de fenêtre (1,3,5,7,9,11)
+    // ============================================================
+    // Étape 0 : on dérive Wo_win / Wd_win en fonction des heures
+    // ============================================================
+    // - si originHours > 0 : on garde les originHours premières obs de Wo
+    // - sinon : on garde Wo tel quel
+    // - idem pour destHours / Wd
+    //
+    // slice(array, start, length) :
+    //   start = 1 (Spark indexe à 1 pour slice)
+    //   length = originHours / destHours
+    val dfWithSlices =
+      df
+        .withColumn(
+          "Wo_win",
+          when(lit(originHours) > 0,
+            slice(col("Wo"), 1, originHours)
+          ).otherwise(col("Wo"))
+        )
+        .withColumn(
+          "Wd_win",
+          when(lit(destHours) > 0,
+            slice(col("Wd"), 1, destHours)
+          ).otherwise(col("Wd"))
+        )
+
+    // ============================================================
+    // Helper générique pour un côté (origine / destination)
+    // ============================================================
+    //
+    // prefix = "o" (origine) ou "d" (destination)
+    // arrCol = "Wo_win" ou "Wd_win"
+    // hours  = taille de fenêtre (1,3,5,7,9,11)
     def addSide(prefix: String, arrCol: String, hours: Int)(dfIn: DataFrame): DataFrame = {
       if (hours <= 0) return dfIn
 
-      // Séquence de struct: Wo[h] / Wd[h]
+      // Séquence de struct: Wo_win[h] / Wd_win[h]
       val rows: Seq[Column] = (0 until hours).map(h => col(arrCol).getItem(h))
 
       // === Helpers numériques ===
@@ -213,18 +241,20 @@ object FeatureBuilder {
         .withColumn(s"${prefix}_has_fg",           hasFgCol.cast("double"))
     }
 
-    // Application conditionnelle aux deux côtés
+    // ============================================================
+    // Application conditionnelle aux deux côtés sur Wo_win/Wd_win
+    // ============================================================
     val withOrigin =
-      if (originHours > 0) addSide("o", "Wo", originHours)(df) else df
+      if (originHours > 0) addSide("o", "Wo_win", originHours)(dfWithSlices) else dfWithSlices
 
     val withDest =
-      if (destHours > 0) addSide("d", "Wd", destHours)(withOrigin) else withOrigin
+      if (destHours > 0) addSide("d", "Wd_win", destHours)(withOrigin) else withOrigin
 
-    // Optionnel : nettoyer Wo/Wd si tu ne les utilises plus :
-    // withDest.drop("Wo", "Wd")
-
+    // Optionnel : on nettoie les colonnes intermédiaires
     withDest
+      .drop("Wo_win", "Wd_win") // on garde Wo/Wd si besoin ailleurs
   }
+
 
   /**
    * Fonction principale :
@@ -257,11 +287,14 @@ object FeatureBuilder {
     val baseFeatures = buildFlatFeatures(slice, cfg)
 
     // Ajout éventuel de la météo
-    val withWx =
+    val withWxBase =
       if (originHours > 0 || destHours > 0)
         addWeatherFeatures(baseFeatures, originHours, destHours)
       else
         baseFeatures
+
+    // 🔹 On cache le DataFrame final de features le temps du split / des counts
+    val withWx = withWxBase.persist()
 
     val n2 = withWx.count()
     logger.info(s"[FeatureBuilder] Slice ds=$ds, th=$th -> $n2 lignes après features (originHours=$originHours, destHours=$destHours)")
@@ -273,10 +306,17 @@ object FeatureBuilder {
       seed = cfg.seed
     )
 
+    // (optionnel mais utile : train / test sont réutilisés dans ModelingPipeline)
+    // train.cache()
+    // test.cache()
+
     logger.info(
       s"[FeatureBuilder] Split train/test (ds=$ds, th=$th, originHours=$originHours, destHours=$destHours): " +
         s"train=${train.count()}, test=${test.count()}"
     )
+
+    // 🔹 On libère la mémoire du DF intermédiaire
+    withWx.unpersist()
 
     (train, test, extraNumCols)
   }
