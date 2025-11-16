@@ -21,13 +21,11 @@ object TargetsInspection {
 
     logger.info(s"=== Targets slice ds=$dsValue, th=$thValue ===")
 
-    df.filter(col("ds") === dsValue && col("th") === thValue)
-      .groupBy("is_pos")
-      .count()
-      .orderBy("is_pos")
-      .show()
+    val slice = df.filter(col("ds") === dsValue && col("th") === thValue)
 
-    df.filter(col("ds") === dsValue && col("th") === thValue)
+    slice.groupBy("is_pos").count().orderBy("is_pos").show()
+
+    slice
       .select(
         col("F.carrier").as("carrier"),
         col("F.flnum").as("flnum"),
