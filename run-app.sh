@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e  # Stop on first error
+set -e  # Arrêt à la première erreur
 
 # =========================================================
 # Script de build + lancement du cluster Spark + job
@@ -7,32 +7,46 @@ set -e  # Stop on first error
 
 # === Paramètres par défaut ===
 BUILD=false
+DELTA_BASE="/app/delta"   # répertoire Delta (peut être surchargé via --deltaBase)
 LOCAL=false
 RESET=false
 STAGE="all"
 DATA_DIR_PATH=${DATA_PATH:-./data}
 
+# === Paramètres associés à la modélisation ===
+DS=""
+TH=""
+ORIGIN_HOURS=""
+DEST_HOURS=""
+TAG=""
+
 # === Parsing des arguments ===
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --build)
-    BUILD=true
-    ;;
-    --local)
-    LOCAL=true
-    ;;
-    --reset)
-    RESET=true
-    ;;
-    --stage=*)
-    STAGE="${1#*=}"
-    ;;
-    *)
-    echo "⚠️  Argument inconnu : $1"
-    ;;
+    --build) BUILD=true ;;
+    --local) LOCAL=true ;;
+    --reset) RESET=true ;;
+    --deltaBase=*) DELTA_BASE="${1#*=}" ;;     # nouvelle option pour l'isolation par expérience
+    --stage=*) STAGE="${1#*=}" ;;
+    --ds=*) DS="${1#*=}" ;;
+    --th=*) TH="${1#*=}" ;;
+    --originHours=*) ORIGIN_HOURS="${1#*=}" ;;
+    --destHours=*) DEST_HOURS="${1#*=}" ;;
+    --tag=*) TAG="${1#*=}" ;;
+    *) echo "⚠️  Argument inconnu : $1" ;;
   esac
   shift
 done
+
+# === Construction des arguments supplémentaires ===
+EXTRA_ARGS=""
+[ -n "$DS" ]           && EXTRA_ARGS+=" --ds=$DS"
+[ -n "$TH" ]           && EXTRA_ARGS+=" --th=$TH"
+[ -n "$ORIGIN_HOURS" ] && EXTRA_ARGS+=" --originHours=$ORIGIN_HOURS"
+[ -n "$DEST_HOURS" ]   && EXTRA_ARGS+=" --destHours=$DEST_HOURS"
+[ -n "$TAG" ]          && EXTRA_ARGS+=" --tag=$TAG"
+
+EXTRA_ARGS+=" --deltaBase=$DELTA_BASE"
 
 if [ "$LOCAL" = true ]; then
   if [ ! -d "$DATA_DIR_PATH" ] || [ -z "$(ls -A $DATA_DIR_PATH)" ]; then
@@ -40,7 +54,7 @@ if [ "$LOCAL" = true ]; then
     exit 1
   fi
   echo "[run-app] Mode local détecté : dataset présent, exécution Spark directe."
-  ./spark-submit.sh "$STAGE"
+  ./spark-submit.sh "$STAGE" $EXTRA_ARGS
   echo ""
   echo "✅ Job Spark terminé avec succès."
   exit 0
@@ -154,8 +168,11 @@ echo "🚀 Soumission du job Spark..."
 echo "----------------------------------------------"
 echo "Build : $BUILD"
 echo "Stage : $STAGE"
+echo "Delta base : $DELTA_BASE"
+echo "Extra args : $EXTRA_ARGS"
 echo "----------------------------------------------"
-docker exec spark-submit /app/spark-submit.sh "$STAGE"
+
+docker exec spark-submit /app/spark-submit.sh "$STAGE" $EXTRA_ARGS
 
 echo ""
 echo "📜 Logs du conteneur spark-submit :"

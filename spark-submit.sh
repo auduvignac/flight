@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 set -e
 
-# ==============================================
-# 🚀 Spark Submit Script (Template compatible)
-# ==============================================
-
 # --- Vérification des arguments ---
 if [ $# -lt 1 ]; then
   echo "Usage:"
-  echo "  $0 <stage>"
-  echo "  stage ∈ {bronze, silver, gold, all}"
+  echo "  $0 <stage> [--ds=D2 --th=60 --originHours=7 --destHours=7 --tag=MyExp --deltaBase=/app/delta-Exp]"
+  echo "  stage ∈ {bronze, silver, gold, ml, all}"
   exit 1
 fi
 
-# --- Paramètres par défaut ---
-STAGE=${1:-"all"}
+# --- Lecture des arguments ---
+STAGE=$1
+shift  # Supprime le premier argument (stage)
+EXTRA_ARGS="$@"
 
-# --- JAR location (cf. run-app.sh) ---
+# --- JAR location ---
 JAR="/app/flight-assembly.jar"
 MAIN_CLASS="com.emiasd.flight.Main"
 
@@ -41,10 +39,25 @@ echo "Classe      : $MAIN_CLASS"
 echo "Log4j conf  : $LOG_CONF"
 echo "flight conf : $CFG_FILE"
 echo "spark conf  : $SPARK_CONF"
-echo "stage       : $STAGE"
+echo "Stage       : $STAGE"
+echo "Arguments CLI : $EXTRA_ARGS"
 echo "=============================================="
 
+# --- Vérification et journalisation du répertoire Delta ---
+if echo "$EXTRA_ARGS" | grep -q -- "--deltaBase="; then
+  DELTA_BASE=$(echo "$EXTRA_ARGS" | sed -n 's/.*--deltaBase=\([^ ]*\).*/\1/p')
+  echo "📂 Répertoire Delta utilisé : $DELTA_BASE"
+  if [ -d "$DELTA_BASE" ]; then
+    echo "✅ DeltaBase détecté : $DELTA_BASE"
+  else
+    echo "⚠️  DeltaBase introuvable localement : $DELTA_BASE"
+  fi
+fi
+
+# --- Exécution de Spark ---
 spark-submit \
   --properties-file "$SPARK_CONF" \
   --class "$MAIN_CLASS" \
-  "$JAR" "$STAGE"
+  "$JAR" \
+  --stage="$STAGE" \
+  $EXTRA_ARGS

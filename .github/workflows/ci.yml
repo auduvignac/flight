@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, feature/ci-runtime-dataset-optimization]
+    branches: [main, feature/ci-parallel-experiment-tag]
   pull_request:
   workflow_dispatch:
 
@@ -202,12 +202,15 @@ jobs:
   # Étape 5 — Gold Stage
   # ============================================
   gold:
-    name: 🟡 Gold - Final Join & QA
+    name: 🟡 Gold - Build Joint Tables
     needs: silver
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/auduvignac/flight:latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        th: [15, 30, 45, 60, 90]
 
     steps:
       - uses: actions/checkout@v4
@@ -224,14 +227,20 @@ jobs:
           name: delta-silver
           path: /app/delta/
 
-      - name: Run Gold stage
-        run: ./run-app.sh --stage=gold --local
+      - name: Build Gold for threshold
+        run: |
+          echo "Building Gold for threshold ${{ matrix.th }} minutes"
+          ./run-app.sh \
+            --stage=gold --local \
+            --deltaBase="/app/delta" \
+            --th=${{ matrix.th }}
 
       - name: Upload Delta Gold
         uses: actions/upload-artifact@v4
         with:
-          name: delta-gold
-          path: /app/delta/
+          name: delta-gold-th${{ matrix.th }}
+          path: /app/delta/gold/
+
 
   # ============================================
   # Étape 6 — ML Stage
@@ -242,7 +251,47 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/auduvignac/flight:latest
-    timeout-minutes: 40
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        exp:
+          [
+            # === Baseline
+            { ds: "D2", th: 60, origin: 0, dest: 0, tag: "Baseline_D2_th60_noWeather" },
+
+            # === Étude 1 : Origine seule
+            { ds: "D2", th: 60, origin: 1, dest: 0, tag: "S1_origin_1h_D2_th60" },
+            { ds: "D2", th: 60, origin: 3, dest: 0, tag: "S1_origin_3h_D2_th60" },
+            { ds: "D2", th: 60, origin: 5, dest: 0, tag: "S1_origin_5h_D2_th60" },
+            { ds: "D2", th: 60, origin: 7, dest: 0, tag: "S1_origin_7h_D2_th60" },
+            { ds: "D2", th: 60, origin: 9, dest: 0, tag: "S1_origin_9h_D2_th60" },
+            { ds: "D2", th: 60, origin: 11, dest: 0, tag: "S1_origin_11h_D2_th60" },
+
+            # === Étude 1 : Destination seule
+            { ds: "D2", th: 60, origin: 0, dest: 1, tag: "S1_dest_1h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 3, tag: "S1_dest_3h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 5, tag: "S1_dest_5h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 7, tag: "S1_dest_7h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 9, tag: "S1_dest_9h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 11, tag: "S1_dest_11h_D2_th60" },
+
+            # === Étude 1 : Origine + destination
+            { ds: "D2", th: 60, origin: 7, dest: 7, tag: "S1_origin7h_dest7h_D2_th60" },
+
+            # === Étude 2 : variation du seuil th
+            { ds: "D2", th: 15, origin: 7, dest: 7, tag: "S2_D2_th15_origin7h_dest7h" },
+            { ds: "D2", th: 30, origin: 7, dest: 7, tag: "S2_D2_th30_origin7h_dest7h" },
+            { ds: "D2", th: 45, origin: 7, dest: 7, tag: "S2_D2_th45_origin7h_dest7h" },
+            { ds: "D2", th: 60, origin: 7, dest: 7, tag: "S2_D2_th60_origin7h_dest7h" },
+            { ds: "D2", th: 90, origin: 7, dest: 7, tag: "S2_D2_th90_origin7h_dest7h" },
+
+            # === Étude 3 : variation du dataset
+            { ds: "D1", th: 60, origin: 7, dest: 7, tag: "S3_D1_th60_origin7h_dest7h" },
+            { ds: "D3", th: 60, origin: 7, dest: 7, tag: "S3_D3_th60_origin7h_dest7h" },
+            { ds: "D4", th: 60, origin: 7, dest: 7, tag: "S3_D4_th60_origin7h_dest7h" }
+          ]
 
     steps:
       - uses: actions/checkout@v4
@@ -253,17 +302,34 @@ jobs:
           name: dataset
           path: /app/data/
 
-      - name: Download Delta Gold
+      - name: Download matching Delta Gold
         uses: actions/download-artifact@v4
         with:
-          name: delta-gold
-          path: /app/delta/
+          name: delta-gold-th${{ matrix.exp.th }}
+          path: /app/delta-tmp/
 
-      - name: Run ML stage
-        run: ./run-app.sh --stage=ml --local
+      - name: Prepare isolated Delta directory
+        run: |
+          DELTA_ISO="/app/delta-${{ matrix.exp.tag }}"
+          echo "🧩 Creating isolated Delta base: $DELTA_ISO"
+          mkdir -p "$DELTA_ISO/gold"
+          cp -r /app/delta-tmp/* "$DELTA_ISO/gold/"
+          echo "Copied $(ls $DELTA_ISO/gold)"
+
+      - name: Run ML stage (matrix experiment)
+        run: |
+          echo "🚀 Running ML experiment: ${{ matrix.exp.tag }}"
+          ./run-app.sh \
+            --stage=ml --local \
+            --deltaBase="/app/delta-${{ matrix.exp.tag }}" \
+            --ds=${{ matrix.exp.ds }} \
+            --th=${{ matrix.exp.th }} \
+            --originHours=${{ matrix.exp.origin }} \
+            --destHours=${{ matrix.exp.dest }} \
+            --tag=${{ matrix.exp.tag }}
 
       - name: Upload ML analysis
         uses: actions/upload-artifact@v4
         with:
-          name: analysis-ml
+          name: analysis-${{ matrix.exp.tag }}
           path: analysis/
