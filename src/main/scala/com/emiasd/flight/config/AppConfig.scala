@@ -10,6 +10,7 @@ final case class AppConfig(
   env: Environment,
 
   // === Inputs (Local) ===
+  deltaBase: Option[String] = None,
   inFlightsDir: String,
   inWeatherDir: String,
   inMapping: String,

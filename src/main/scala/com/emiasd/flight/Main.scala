@@ -499,6 +499,11 @@ object Main {
             .text("Environnement d'exécution (Local, Hadoop, CI, etc.)"),
 
           // INPUTS LOCAL
+          opt[String]("deltaBase")
+            .action((x, c) => c.copy(deltaBase = Some(x)))
+            .text(
+              "Base path des tables Delta (ex: /app/delta ou /app/delta-Exp)"
+            ),
           opt[String]("inFlightsDir")
             .action((x, c) => c.copy(inFlightsDir = x))
             .text("Répertoire local des vols"),

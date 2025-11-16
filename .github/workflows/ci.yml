@@ -297,13 +297,20 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: delta-gold
-          path: /app/delta/
+          path: /app/delta-base/
+
+      - name: Prepare isolated Delta directory
+        run: |
+          DELTA_ISO="/app/delta-${{ matrix.exp.tag }}"
+          echo "🧩 Creating isolated Delta base: $DELTA_ISO"
+          cp -r /app/delta-base "$DELTA_ISO"
 
       - name: Run ML stage (matrix experiment)
         run: |
           echo "🚀 Running ML experiment: ${{ matrix.exp.tag }}"
           ./run-app.sh \
             --stage=ml --local \
+            --deltaBase="/app/delta-${{ matrix.exp.tag }}" \
             --ds=${{ matrix.exp.ds }} \
             --th=${{ matrix.exp.th }} \
             --originHours=${{ matrix.exp.origin }} \

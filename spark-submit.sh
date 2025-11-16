@@ -4,12 +4,12 @@ set -e
 # --- Vérification des arguments ---
 if [ $# -lt 1 ]; then
   echo "Usage:"
-  echo "  $0 <stage> [--ds=D2 --th=60 --originHours=7 --destHours=7 --tag=MyExp]"
-  echo "  stage ∈ {bronze, silver, gold, all}"
+  echo "  $0 <stage> [--ds=D2 --th=60 --originHours=7 --destHours=7 --tag=MyExp --deltaBase=/app/delta-Exp]"
+  echo "  stage ∈ {bronze, silver, gold, ml, all}"
   exit 1
 fi
 
-# --- Paramètres par défaut ---
+# --- Lecture des arguments ---
 STAGE=$1
 shift  # Supprime le premier argument (stage)
 EXTRA_ARGS="$@"
@@ -40,9 +40,21 @@ echo "Log4j conf  : $LOG_CONF"
 echo "flight conf : $CFG_FILE"
 echo "spark conf  : $SPARK_CONF"
 echo "Stage       : $STAGE"
-echo "Args        : $EXTRA_ARGS"
+echo "Arguments CLI : $EXTRA_ARGS"
 echo "=============================================="
 
+# --- Vérification et journalisation du répertoire Delta ---
+if echo "$EXTRA_ARGS" | grep -q -- "--deltaBase="; then
+  DELTA_BASE=$(echo "$EXTRA_ARGS" | sed -n 's/.*--deltaBase=\([^ ]*\).*/\1/p')
+  echo "📂 Répertoire Delta utilisé : $DELTA_BASE"
+  if [ -d "$DELTA_BASE" ]; then
+    echo "✅ DeltaBase détecté : $DELTA_BASE"
+  else
+    echo "⚠️  DeltaBase introuvable localement : $DELTA_BASE"
+  fi
+fi
+
+# --- Exécution de Spark ---
 spark-submit \
   --properties-file "$SPARK_CONF" \
   --class "$MAIN_CLASS" \

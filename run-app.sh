@@ -7,6 +7,7 @@ set -e  # Arrêt à la première erreur
 
 # === Paramètres par défaut ===
 BUILD=false
+DELTA_BASE="/app/delta"   # répertoire Delta (peut être surchargé via --deltaBase)
 LOCAL=false
 RESET=false
 STAGE="all"
@@ -25,6 +26,7 @@ while [[ $# -gt 0 ]]; do
     --build) BUILD=true ;;
     --local) LOCAL=true ;;
     --reset) RESET=true ;;
+    --deltaBase=*) DELTA_BASE="${1#*=}" ;;     # nouvelle option pour l'isolation par expérience
     --stage=*) STAGE="${1#*=}" ;;
     --ds=*) DS="${1#*=}" ;;
     --th=*) TH="${1#*=}" ;;
@@ -43,6 +45,7 @@ EXTRA_ARGS=""
 [ -n "$ORIGIN_HOURS" ] && EXTRA_ARGS="$EXTRA_ARGS --originHours=$ORIGIN_HOURS"
 [ -n "$DEST_HOURS" ] && EXTRA_ARGS="$EXTRA_ARGS --destHours=$DEST_HOURS"
 [ -n "$TAG" ] && EXTRA_ARGS="$EXTRA_ARGS --tag=$TAG"
+[ -n "$DELTA_BASE" ] && EXTRA_ARGS="$EXTRA_ARGS --deltaBase=$DELTA_BASE"
 
 if [ "$LOCAL" = true ]; then
   if [ ! -d "$DATA_DIR_PATH" ] || [ -z "$(ls -A $DATA_DIR_PATH)" ]; then
@@ -164,8 +167,10 @@ echo "🚀 Soumission du job Spark..."
 echo "----------------------------------------------"
 echo "Build : $BUILD"
 echo "Stage : $STAGE"
-echo "Extra : $EXTRA_ARGS"
+echo "Delta base : $DELTA_BASE"
+echo "Extra args : $EXTRA_ARGS"
 echo "----------------------------------------------"
+
 docker exec spark-submit /app/spark-submit.sh "$STAGE" $EXTRA_ARGS
 
 echo ""
