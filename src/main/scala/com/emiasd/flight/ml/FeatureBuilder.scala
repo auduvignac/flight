@@ -234,7 +234,10 @@ object FeatureBuilder {
           }
 
         def anyCond(cols: Seq[Column])(f: Column => Column): Column =
-          cols.map(f).reduce(_ or _)
+          cols.map(f) match {
+            case Seq()      => lit(false)
+            case head +: tl => tl.foldLeft(head)(_ or _)
+          }
 
         // colonnes numériques par type
         val visCols    = numCols("vis")
