@@ -239,7 +239,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: delta-gold-th${{ matrix.th }}
-          path: /app/delta/gold/JT_th${{ matrix.th }}
+          path: /app/delta/gold/
+
 
   # ============================================
   # Étape 6 — ML Stage
