@@ -47,22 +47,26 @@ object FeatureBuilder {
 
   def weatherFeatureNames(originHours: Int, destHours: Int): Array[String] = {
 
-    // Colonnes brutes + isna
-    val originRawCols =
+    // --------------------------------------------------------------
+    // 1) Colonnes brutes horaires + colonnes _isna
+    // --------------------------------------------------------------
+    val originRaw =
       for {
         h      <- 0 until originHours
-        v      <- wxNumericVars
-        suffix <- Seq("", "_isna")
-      } yield s"o_h${h}_${v}${suffix}"
+        v      <- wxNumericVars    // ex: vis, tempC, windKt, precip
+        suffix <- Seq("", "_isna") // ex: o_h0_vis, o_h0_vis_isna
+      } yield s"o_h${h}_${v}$suffix"
 
-    val destRawCols =
+    val destRaw =
       for {
         h      <- 0 until destHours
         v      <- wxNumericVars
         suffix <- Seq("", "_isna")
-      } yield s"d_h${h}_${v}${suffix}"
+      } yield s"d_h${h}_${v}$suffix"
 
-    // Colonnes agrégées
+    // --------------------------------------------------------------
+    // 2) Colonnes agrégées
+    // --------------------------------------------------------------
     val aggNames = Seq(
       "vis_avg",
       "temp_avg",
@@ -76,16 +80,18 @@ object FeatureBuilder {
       "has_fg"
     )
 
-    val originAggCols =
-      if (originHours > 0) aggNames.map(n => s"o_$n") else Seq.empty
+    val originAgg =
+      if (originHours > 0) aggNames.map(n => s"o_$n")
+      else Seq.empty
 
-    val destAggCols =
-      if (destHours > 0) aggNames.map(n => s"d_$n") else Seq.empty
+    val destAgg =
+      if (destHours > 0) aggNames.map(n => s"d_$n")
+      else Seq.empty
 
-    //
-    // Fusion complète
-    //
-    (originRawCols ++ destRawCols ++ originAggCols ++ destAggCols).toArray
+    // --------------------------------------------------------------
+    // 3) Fusion
+    // --------------------------------------------------------------
+    (originRaw ++ destRaw ++ originAgg ++ destAgg).toArray
   }
 
   /**
