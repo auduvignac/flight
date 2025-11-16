@@ -228,7 +228,10 @@ object FeatureBuilder {
           rows.map(_.getField(s"${prefix}_$fieldSuffix").cast("double"))
 
         def safeSum(cols: Seq[Column]): Column =
-          cols.map(c => coalesce(c, lit(0.0))).reduce(_ + _)
+          cols.map(c => coalesce(c, lit(0.0))) match {
+            case Seq()      => lit(0.0)
+            case head +: tl => tl.foldLeft(head)(_ + _)
+          }
 
         def anyCond(cols: Seq[Column])(f: Column => Column): Column =
           cols.map(f).reduce(_ or _)
