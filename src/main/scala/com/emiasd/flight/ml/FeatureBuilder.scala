@@ -181,11 +181,14 @@ object FeatureBuilder {
     val baseFeatures = buildFlatFeatures(slice, cfg)
 
     // Ajout éventuel de la météo
-    val withWx =
+    val withWxBase =
       if (originHours > 0 || destHours > 0)
         addWeatherFeatures(baseFeatures, originHours, destHours)
       else
         baseFeatures
+
+    // Mise en cache du DataFrame final de features le temps du split / des counts
+    val withWx = withWxBase.persist()
 
     val n2 = withWx.count()
     logger.info(
@@ -203,6 +206,9 @@ object FeatureBuilder {
       s"[FeatureBuilder] Split train/test (ds=$ds, th=$th, originHours=$originHours, destHours=$destHours): " +
         s"train=${train.count()}, test=${test.count()}"
     )
+
+    // Libération mémoire du DataFrame intermédiaire
+    withWx.unpersist()
 
     (train, test, extraNumCols)
   }
