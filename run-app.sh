@@ -40,12 +40,13 @@ done
 
 # === Construction des arguments supplémentaires ===
 EXTRA_ARGS=""
-[ -n "$DS" ] && EXTRA_ARGS="$EXTRA_ARGS --ds=$DS"
-[ -n "$TH" ] && EXTRA_ARGS="$EXTRA_ARGS --th=$TH"
-[ -n "$ORIGIN_HOURS" ] && EXTRA_ARGS="$EXTRA_ARGS --originHours=$ORIGIN_HOURS"
-[ -n "$DEST_HOURS" ] && EXTRA_ARGS="$EXTRA_ARGS --destHours=$DEST_HOURS"
-[ -n "$TAG" ] && EXTRA_ARGS="$EXTRA_ARGS --tag=$TAG"
-[ -n "$DELTA_BASE" ] && EXTRA_ARGS="$EXTRA_ARGS --deltaBase=$DELTA_BASE"
+[ -n "$DS" ]           && EXTRA_ARGS+=" --ds=$DS"
+[ -n "$TH" ]           && EXTRA_ARGS+=" --th=$TH"
+[ -n "$ORIGIN_HOURS" ] && EXTRA_ARGS+=" --originHours=$ORIGIN_HOURS"
+[ -n "$DEST_HOURS" ]   && EXTRA_ARGS+=" --destHours=$DEST_HOURS"
+[ -n "$TAG" ]          && EXTRA_ARGS+=" --tag=$TAG"
+
+EXTRA_ARGS+=" --deltaBase=$DELTA_BASE"
 
 if [ "$LOCAL" = true ]; then
   if [ ! -d "$DATA_DIR_PATH" ] || [ -z "$(ls -A $DATA_DIR_PATH)" ]; then
