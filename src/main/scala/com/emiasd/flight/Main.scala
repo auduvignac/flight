@@ -468,9 +468,23 @@ object Main {
     }
 
     // =======================
-    // Exécution de toutes les expériences
+    // Exécution conditionnelle des expériences
     // =======================
-    experiments.foreach(runOneExperiment)
+    (cfg.ds, cfg.originHours, cfg.destHours, cfg.tag) match {
+      // Cas 1 : un scénario spécifique a été passé en argument CLI
+      case (Some(ds), Some(origin), Some(dest), Some(tag)) =>
+        val th        = cfg.thMinutes
+        val singleExp = ExperimentConfig(ds, th, origin, dest, tag)
+        logger.info(s"Exécution ciblée d'une seule expérience : $singleExp")
+        runOneExperiment(singleExp)
+
+      // Cas 2 : aucun paramètre CLI => exécution de tous les scénarios
+      case _ =>
+        logger.info(
+          "Aucun scénario spécifique fourni — exécution de toutes les expériences définies."
+        )
+        experiments.foreach(runOneExperiment)
+    }
 
     logger.info("=== Étape Spark ML terminée ===")
   }
