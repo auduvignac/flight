@@ -6,35 +6,48 @@ import org.apache.log4j.Logger
 import scala.collection.JavaConverters._ // Scala 2.12.x
 
 final case class AppConfig(
-  // env
+  // === Environment ===
   env: Environment,
-  // inputs (Local)
+
+  // === Inputs (Local) ===
   inFlightsDir: String,
   inWeatherDir: String,
   inMapping: String,
-  // inputs (Hadoop)
+
+  // === Inputs (Hadoop) ===
   hInFlightsDir: String,
   hInWeatherDir: String,
   hInMapping: String,
-  // outputs (Local)
+
+  // === Outputs (Local) ===
   deltaBronzeBase: String,
   deltaSilverBase: String,
   deltaGoldBase: String,
-  // outputs (Hadoop)
+
+  // === Outputs (Hadoop) ===
   hDeltaBronzeBase: String,
   hDeltaSilverBase: String,
   hDeltaGoldBase: String,
-  // params
+
+  // === Processing params ===
   monthsF: Seq[String],
   monthsW: Seq[String],
   thMinutes: Int,
   missingnessThreshold: Double,
-  // spark
+
+  // === Spark ===
   sparkMaster: String,
   sparkAppName: String,
   sparkSqlExtensions: String,
   sparkSqlCatalog: String,
-  sparkConfs: Map[String, String]
+  sparkConfs: Map[String, String],
+
+  // === Exécution / Modélisation ===
+  stage: String = "all",
+  ds: Option[String] = None,
+  originHours: Option[Int] = None,
+  destHours: Option[Int] = None,
+  tag: Option[String] = None
 )
 
 object AppConfig {
@@ -134,4 +147,26 @@ object AppConfig {
       sparkConfs = getSparkConfs(spark)
     )
   }
+
+  /** Affiche la configuration chargée dans les logs. */
+  def logConfig(cfg: AppConfig): Unit = {
+    logger.info("========== Configuration Active ==========")
+    logger.info(s"Environnement        : ${cfg.env}")
+    logger.info(s"Étape demandée       : ${cfg.stage}")
+    logger.info(s"Seuil retard (min)   : ${cfg.thMinutes}")
+    logger.info(s"MissingnessThreshold : ${cfg.missingnessThreshold}")
+    logger.info(s"Months Flights       : ${cfg.monthsF.mkString(", ")}")
+    logger.info(s"Months Weather       : ${cfg.monthsW.mkString(", ")}")
+    logger.info(s"Spark Master         : ${cfg.sparkMaster}")
+    logger.info(s"Spark App Name       : ${cfg.sparkAppName}")
+    logger.info(s"Delta Bronze Base    : ${cfg.deltaBronzeBase}")
+    logger.info(s"Delta Silver Base    : ${cfg.deltaSilverBase}")
+    logger.info(s"Delta Gold Base      : ${cfg.deltaGoldBase}")
+    logger.info(s"Dataset (opt)        : ${cfg.ds.getOrElse("-")}")
+    logger.info(s"OriginHours (opt)    : ${cfg.originHours.getOrElse("-")}")
+    logger.info(s"DestHours (opt)      : ${cfg.destHours.getOrElse("-")}")
+    logger.info(s"Tag (opt)            : ${cfg.tag.getOrElse("-")}")
+    logger.info("==========================================")
+  }
+
 }

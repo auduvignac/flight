@@ -5,17 +5,18 @@ package com.emiasd.flight
 // =======================
 import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetRatioAnalysis, TargetsInspection}
 import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
-import com.emiasd.flight.config.AppConfig
+import com.emiasd.flight.config.{AppConfig, Environment}
 import com.emiasd.flight.io.{Readers, Writers}
 import com.emiasd.flight.join.{BuildJT, FlightsEnriched}
 import com.emiasd.flight.ml.FeatureBuilder.FeatureConfig
 import com.emiasd.flight.ml.{ExperimentConfig, FeatureBuilder, ModelingPipeline}
 import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
-import com.emiasd.flight.spark.{IOPaths, PathResolver, SparkBuilder}
+import com.emiasd.flight.spark.{IOPaths, PathResolver}
 import com.emiasd.flight.targets.TargetBatch
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
+import scopt.OParser
 
 import scala.util.{Failure, Success, Try}
 
@@ -477,52 +478,175 @@ object Main {
   // =======================
   // MAIN
   // =======================
-  def main(args: Array[String]): Unit =
+  def main(args: Array[String]): Unit = {
     try {
-      logger.info("Lancement de l'application...")
+      logger.info("Lancement de l'application Flight Delay Prediction...")
 
-      // Chargement de la configuration et initialisation Spark
-      val cfg   = AppConfig.load()
-      val spark = SparkBuilder.build(cfg)
-      val paths = PathResolver.resolve(cfg)
+      // Chargement de la configuration de base (.conf)
+      val baseCfg = AppConfig.load()
 
-      logger.info(s"Configuration chargée : ${cfg}")
-      logger.info(s"IO paths resolved: $paths")
+      // Parsing scopt complet
+      val builder = OParser.builder[AppConfig]
+      val parser = {
+        import builder._
+        OParser.sequence(
+          programName("flight-delay-pipeline"),
+          head("Flight Delay Prediction", "v1.0"),
 
-      // Option : exécuter une seule étape si argument fourni
-      val allowedStages = Set("bronze", "silver", "gold", "ml", "all")
-      val stage         = args.headOption.getOrElse("all").toLowerCase
-      if (!allowedStages.contains(stage)) {
-        logger.error(
-          s"Valeur d'étape non supportée: '$stage'. Valeurs autorisées: ${allowedStages.mkString(", ")}"
+          // ENVIRONNEMENT
+          opt[String]("env")
+            .action((x, c) => c.copy(env = Environment.fromString(x)))
+            .text("Environnement d'exécution (Local, Hadoop, CI, etc.)"),
+
+          // INPUTS LOCAL
+          opt[String]("inFlightsDir")
+            .action((x, c) => c.copy(inFlightsDir = x))
+            .text("Répertoire local des vols"),
+          opt[String]("inWeatherDir")
+            .action((x, c) => c.copy(inWeatherDir = x))
+            .text("Répertoire local météo"),
+          opt[String]("inMapping")
+            .action((x, c) => c.copy(inMapping = x))
+            .text("Fichier de mapping local"),
+
+          // INPUTS HDFS
+          opt[String]("hInFlightsDir")
+            .action((x, c) => c.copy(hInFlightsDir = x))
+            .text("Répertoire HDFS des vols"),
+          opt[String]("hInWeatherDir")
+            .action((x, c) => c.copy(hInWeatherDir = x))
+            .text("Répertoire HDFS météo"),
+          opt[String]("hInMapping")
+            .action((x, c) => c.copy(hInMapping = x))
+            .text("Mapping HDFS"),
+
+          // OUTPUTS LOCAL
+          opt[String]("deltaBronzeBase")
+            .action((x, c) => c.copy(deltaBronzeBase = x))
+            .text("Répertoire local Delta Bronze"),
+          opt[String]("deltaSilverBase")
+            .action((x, c) => c.copy(deltaSilverBase = x))
+            .text("Répertoire local Delta Silver"),
+          opt[String]("deltaGoldBase")
+            .action((x, c) => c.copy(deltaGoldBase = x))
+            .text("Répertoire local Delta Gold"),
+
+          // OUTPUTS HDFS
+          opt[String]("hDeltaBronzeBase")
+            .action((x, c) => c.copy(hDeltaBronzeBase = x))
+            .text("Répertoire HDFS Delta Bronze"),
+          opt[String]("hDeltaSilverBase")
+            .action((x, c) => c.copy(hDeltaSilverBase = x))
+            .text("Répertoire HDFS Delta Silver"),
+          opt[String]("hDeltaGoldBase")
+            .action((x, c) => c.copy(hDeltaGoldBase = x))
+            .text("Répertoire HDFS Delta Gold"),
+
+          // PARAMÈTRES
+          opt[Seq[String]]("monthsF")
+            .valueName("m1,m2,...")
+            .action((x, c) => c.copy(monthsF = x))
+            .text("Liste des mois vols (ex: 01,02,03)"),
+          opt[Seq[String]]("monthsW")
+            .valueName("m1,m2,...")
+            .action((x, c) => c.copy(monthsW = x))
+            .text("Liste des mois météo (ex: 01,02,03)"),
+          opt[Int]("th")
+            .action((x, c) => c.copy(thMinutes = x))
+            .text("Seuil de retard en minutes"),
+          opt[Double]("missingnessThreshold")
+            .action((x, c) => c.copy(missingnessThreshold = x))
+            .text("Seuil de valeurs manquantes (0–1)"),
+
+          // SPARK
+          opt[String]("sparkMaster")
+            .action((x, c) => c.copy(sparkMaster = x))
+            .text("Master Spark (local[*], yarn, k8s, etc.)"),
+          opt[String]("sparkAppName")
+            .action((x, c) => c.copy(sparkAppName = x))
+            .text("Nom de l'application Spark"),
+          opt[String]("sparkSqlExtensions")
+            .action((x, c) => c.copy(sparkSqlExtensions = x))
+            .text("Extensions Spark SQL"),
+          opt[String]("sparkSqlCatalog")
+            .action((x, c) => c.copy(sparkSqlCatalog = x))
+            .text("Nom du catalogue Spark"),
+          opt[Map[String, String]]("sparkConfs")
+            .valueName("k1=v1,k2=v2,...")
+            .action((x, c) => c.copy(sparkConfs = x))
+            .text("Configurations Spark supplémentaires"),
+
+          // MODÉLISATION
+          opt[String]("stage")
+            .action((x, c) => c.copy(stage = x.toLowerCase))
+            .text("Étape à exécuter : bronze, silver, gold, ml, all"),
+          opt[String]("ds")
+            .action((x, c) => c.copy(ds = Some(x)))
+            .text("Dataset (D1, D2, D3, D4)"),
+          opt[Int]("originHours")
+            .action((x, c) => c.copy(originHours = Some(x)))
+            .text("Heures météo origine"),
+          opt[Int]("destHours")
+            .action((x, c) => c.copy(destHours = Some(x)))
+            .text("Heures météo destination"),
+          opt[String]("tag")
+            .action((x, c) => c.copy(tag = Some(x)))
+            .text("Tag unique de l'expérience"),
+          help("help").text("Affiche cette aide et quitte")
         )
-        sys.exit(1)
-      }
-      stage match {
-        case "bronze" =>
-          runBronze(spark, paths)
-
-        case "silver" =>
-          runSilver(spark, paths)
-
-        case "gold" =>
-          runGold(spark, paths, cfg)
-
-        case "ml" =>
-          runModeling(spark, paths, cfg)
-
-        case "all" =>
-          runBronze(spark, paths)
-          runSilver(spark, paths)
-          runGold(spark, paths, cfg)
-          runModeling(spark, paths, cfg)
       }
 
-      logger.info("Application terminée avec succès.")
-      spark.stop()
+      // Fusion de la config + arguments CLI
+      OParser.parse(parser, args, baseCfg) match {
+        case Some(cfg) =>
+          AppConfig.logConfig(cfg)
+          runPipeline(cfg)
+
+        case None =>
+          sys.exit(1)
+      }
+
     } catch {
       case e: Exception =>
-        logger.error("Application failed", e)
+        logger.error("Échec de l'application", e)
         throw e
     }
+  }
+
+  // ============================================================
+  // PIPELINE PRINCIPAL
+  // ============================================================
+  def runPipeline(cfg: AppConfig): Unit = {
+    logger.info(s"Étape demandée : ${cfg.stage}")
+
+    val spark = SparkSession
+      .builder()
+      .appName(cfg.sparkAppName)
+      .master(cfg.sparkMaster)
+      .config("spark.sql.extensions", cfg.sparkSqlExtensions)
+      .config("spark.sql.catalog.spark_catalog", cfg.sparkSqlCatalog)
+      .getOrCreate()
+
+    val paths = PathResolver.resolve(cfg)
+
+    cfg.stage.toLowerCase match {
+      case "bronze" => runBronze(spark, paths)
+      case "silver" => runSilver(spark, paths)
+      case "gold"   => runGold(spark, paths, cfg)
+      case "ml"     => runModeling(spark, paths, cfg)
+      case "all" =>
+        runBronze(spark, paths)
+        runSilver(spark, paths)
+        runGold(spark, paths, cfg)
+        runModeling(spark, paths, cfg)
+      case other =>
+        logger.error(
+          s"❌ Étape inconnue: $other (bronze, silver, gold, ml, all)"
+        )
+        sys.exit(1)
+    }
+
+    spark.stop()
+    logger.info("Application terminée avec succès.")
+  }
 }
