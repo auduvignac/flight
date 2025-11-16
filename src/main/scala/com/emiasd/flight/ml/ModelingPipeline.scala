@@ -2,7 +2,7 @@
 package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
-import org.apache.spark.ml.classification.RandomForestClassifier
+import org.apache.spark.ml.classification.{RandomForestClassificationModel, RandomForestClassifier}
 import org.apache.spark.ml.evaluation.BinaryClassificationEvaluator
 import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler}
 import org.apache.spark.ml.{Pipeline, PipelineModel, PipelineStage}
@@ -70,6 +70,37 @@ object ModelingPipeline {
 
     val pipeline: Pipeline   = buildRandomForestPipeline(extraNumCols)
     val model: PipelineModel = pipeline.fit(trainDF)
+
+    // === Analyse des importances de features ===
+    try {
+      // On récupère le RF et le VectorAssembler depuis le pipeline
+      val rfModel = model.stages.collect {
+        case m: RandomForestClassificationModel => m
+      }.head
+
+      val assembler = model.stages.collect { case a: VectorAssembler => a }.head
+
+      val inputCols = assembler.getInputCols
+
+      import spark.implicits._
+
+      val fiDF = inputCols
+        .zip(rfModel.featureImportances.toArray)
+        .toSeq
+        .toDF("feature", "importance")
+        .orderBy(desc("importance"))
+
+      logger.info(s"[ModelingPipeline] Top 30 feature importances pour $tag :")
+      fiDF.show(30, truncate = false)
+
+    } catch {
+      case e: Exception =>
+        logger.warn(
+          s"[ModelingPipeline] Impossible de calculer les importances pour $tag : ${e.getMessage}"
+        )
+    }
+
+    // === FIN Analyse des importances de features ===
 
     logger.info(
       s"[ModelingPipeline] Évaluation sur test set (ds=$ds, th=$th, tag=$tag)"

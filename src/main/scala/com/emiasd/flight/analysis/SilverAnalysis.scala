@@ -12,31 +12,37 @@ object SilverAnalysis {
   // ===== Public entrypoint =====
   def analyzeFlights(df: DataFrame, outDir: String): Unit = {
     logger.info("=== ANALYSE FLIGHTS SILVER ===")
-    logger.info(s"Rows = ${df.count()}")
+
+    val dfCached = df.cache()
+
+    logger.info(s"Rows = ${dfCached.count()}")
 
     // s'assure que le dossier d'output existe côté driver (utile en local)
     new java.io.File(outDir).mkdirs()
 
-    val nulls = nullsReport(df)
+    val nulls = nullsReport(dfCached)
     nulls.show(false)
     writeCsv(nulls, s"$outDir/nulls_report")
 
-    val uniques = uniquesReport(df)
+    val uniques = uniquesReport(dfCached)
     uniques.show(false)
     writeCsv(uniques, s"$outDir/uniques_report")
 
-    val quants = quantilesReport(df)
+    val quants = quantilesReport(dfCached)
     quants.show(false)
     writeCsv(quants, s"$outDir/quantiles_report")
 
-    val rules = delayRules(df)
+    val rules = delayRules(dfCached)
     rules.show(false)
     writeCsv(rules, s"$outDir/delay_rules")
 
     // échantillon des violations pour examen rapide
-    val viol = sampleViolations(df)
+    val viol = sampleViolations(dfCached)
     viol.show(20, truncate = false)
     writeCsv(viol, s"$outDir/delay_rules_violations_sample")
+
+    // Libération de la mémoire
+    dfCached.unpersist()
   }
 
   // ===== Helpers =====

@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, feature/ci-parallel-experiment-tag]
+    branches: [main, feature/weather-aggregates-and-perf-tuning]
   pull_request:
   workflow_dispatch:
 
