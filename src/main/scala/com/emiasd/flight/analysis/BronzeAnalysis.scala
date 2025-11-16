@@ -48,11 +48,15 @@ object BronzeAnalysis {
   /** Analyse FLIGHTS Bronze + export CSV */
   def analyzeFlights(df: DataFrame, outDir: String): Unit = {
     logger.info("=== ANALYSE FLIGHTS BRONZE ===")
-    logger.info(s"Rows = ${df.count}")
 
-    val nulls = nullsReport(df)
+    // Mise en cache du DataFrame pour amortir les scans (count + 2 agg)
+    val dfCached = df.cache()
+
+    logger.info(s"Rows = ${dfCached.count()}")
+
+    val nulls = nullsReport(dfCached)
     val uniq = uniquesReport(
-      df,
+      dfCached,
       Seq(
         "OP_CARRIER_AIRLINE_ID",
         "FL_NUM",
@@ -69,18 +73,26 @@ object BronzeAnalysis {
       .mode("overwrite")
       .option("header", "true")
       .csv(s"$outDir/flights_nulls")
+
     uniq
       .coalesce(1)
       .write
       .mode("overwrite")
       .option("header", "true")
       .csv(s"$outDir/flights_uniques")
+
+    // Libération de la mémoire une fois l’analyse terminée
+    dfCached.unpersist()
   }
 
   /** Analyse WEATHER Bronze + export CSV (sur colonnes utiles) */
   def analyzeWeather(df: DataFrame, outDir: String): Unit = {
     logger.info("=== ANALYSE WEATHER BRONZE ===")
-    logger.info(s"Rows = ${df.count}")
+
+    // Cache global pour amortir count + 2 agg
+    val dfCached = df.cache()
+
+    logger.info(s"Rows = ${dfCached.count()}")
 
     val cols = Seq(
       "airport_id",
@@ -100,9 +112,9 @@ object BronzeAnalysis {
       "HourlyPrecip",
       "year",
       "month"
-    ).filter(df.columns.contains)
+    ).filter(dfCached.columns.contains)
 
-    val wx = if (cols.nonEmpty) df.select(cols.map(col): _*) else df
+    val wx = if (cols.nonEmpty) dfCached.select(cols.map(col): _*) else dfCached
 
     val nulls = nullsReport(wx)
     val uniq  = uniquesReport(wx, Seq("airport_id", "WBAN", "year", "month"))
@@ -115,11 +127,15 @@ object BronzeAnalysis {
       .mode("overwrite")
       .option("header", "true")
       .csv(s"$outDir/weather_nulls")
+
     uniq
       .coalesce(1)
       .write
       .mode("overwrite")
       .option("header", "true")
       .csv(s"$outDir/weather_uniques")
+
+    // Libération de la mémoire
+    dfCached.unpersist()
   }
 }
