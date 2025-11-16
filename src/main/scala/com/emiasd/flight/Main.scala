@@ -3,7 +3,7 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
-import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetRatioAnalysis, TargetsInspection}
+import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetsInspection}
 import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
 import com.emiasd.flight.config.{AppConfig, Environment}
 import com.emiasd.flight.io.{Readers, Writers}
@@ -291,15 +291,6 @@ object Main {
         col("F.nas_weather_delay")
       )
       .show(5, truncate = false)
-
-    TargetRatioAnalysis.run(
-      jt = jtCheck,
-      outDir = "analysis/targets",
-      tauGrid = Seq(0.80, 0.85, 0.90, 0.92, 0.95, 0.98, 1.00),
-      eps = 1.0,
-      tolTau1Strict = 1e-6,
-      tolTau1Loose = 0.01
-    )
 
     // === Génération D1..D4 x Th via batch unique ===
 
