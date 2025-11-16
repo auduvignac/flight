@@ -16,27 +16,57 @@ final case class IOPaths(
 
 object PathResolver {
 
-  def resolve(cfg: AppConfig): IOPaths = {
-    // 1) Base Delta effective
-    val effectiveDeltaBase: String = cfg.deltaBase.getOrElse {
-      // fallback : garde le schéma “/app/delta/{bronze|silver|gold}”
-      cfg.env match {
-        case Environment.Hadoop => cfg.hDeltaGoldBase.dropRight("/gold".length)
-        case _                  => cfg.deltaGoldBase.dropRight("/gold".length)
-      }
+  // --- Utils --------------------------------------------------------------
+
+  /**
+   * Supprime proprement un suffixe dans un chemin, avec ou sans slash final.
+   */
+  private def stripSuffix(path: String, suffix: String): String =
+    path.stripSuffix(suffix).stripSuffix(suffix + "/")
+
+  /**
+   * Retourne la base Delta "effective" :
+   *   - si deltaBase est définie → utilisable directement
+   *   - sinon → dérivée de la base gold (env local ou Hadoop)
+   */
+  private def computeEffectiveDeltaBase(cfg: AppConfig): String =
+    cfg.deltaBase.getOrElse {
+      val rawBase =
+        cfg.env match {
+          case Environment.Hadoop => cfg.hDeltaGoldBase
+          case _                  => cfg.deltaGoldBase
+        }
+
+      // supprime uniquement le suffixe /gold
+      stripSuffix(rawBase, "/gold")
     }
 
-    // 2) Entrées
-    val (fDir, wDir, map) = cfg.env match {
+  /** Retourne les chemins d'entrée selon l'environnement. */
+  private def inputPaths(cfg: AppConfig): (String, String, String) =
+    cfg.env match {
       case Environment.Local =>
         (cfg.inFlightsDir, cfg.inWeatherDir, cfg.inMapping)
       case Environment.Hadoop =>
         (cfg.hInFlightsDir, cfg.hInWeatherDir, cfg.hInMapping)
     }
-    val flightsInputs = cfg.monthsF.map(m => s"$fDir/$m.csv")
-    val weatherInputs = cfg.monthsW.map(m => s"$wDir/${m}hourly.txt")
 
-    // 3) Sous-arborescences Delta (dérivées de la base effective)
+  // --- Main resolve -------------------------------------------------------
+
+  def resolve(cfg: AppConfig): IOPaths = {
+
+    // 1) Base Delta effective (robuste)
+    val effectiveDeltaBase = computeEffectiveDeltaBase(cfg)
+
+    // 2) Entrées
+    val (flightsDir, weatherDir, mapping) = inputPaths(cfg)
+
+    val flightsInputs =
+      cfg.monthsF.map(m => s"$flightsDir/$m.csv")
+
+    val weatherInputs =
+      cfg.monthsW.map(m => s"$weatherDir/${m}hourly.txt")
+
+    // 3) Arborescences Delta
     val bronzeBase = s"$effectiveDeltaBase/bronze"
     val silverBase = s"$effectiveDeltaBase/silver"
     val goldBase   = s"$effectiveDeltaBase/gold"
@@ -44,7 +74,7 @@ object PathResolver {
     IOPaths(
       flightsInputs = flightsInputs,
       weatherInputs = weatherInputs,
-      mapping = map,
+      mapping = mapping,
       bronzeFlights = s"$bronzeBase/flights",
       bronzeWeather = s"$bronzeBase/weather",
       silverFlights = s"$silverBase/flights",
