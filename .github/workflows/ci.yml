@@ -202,12 +202,15 @@ jobs:
   # Étape 5 — Gold Stage
   # ============================================
   gold:
-    name: 🟡 Gold - Final Join & QA
+    name: 🟡 Gold - Build Joint Tables
     needs: silver
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/auduvignac/flight:latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        th: [15, 30, 45, 60, 90]
 
     steps:
       - uses: actions/checkout@v4
@@ -224,14 +227,19 @@ jobs:
           name: delta-silver
           path: /app/delta/
 
-      - name: Run Gold stage
-        run: ./run-app.sh --stage=gold --local
+      - name: Build Gold for threshold
+        run: |
+          echo "Building Gold for threshold ${{ matrix.th }} minutes"
+          ./run-app.sh \
+            --stage=gold --local \
+            --deltaBase="/app/delta" \
+            --th=${{ matrix.th }}
 
       - name: Upload Delta Gold
         uses: actions/upload-artifact@v4
         with:
-          name: delta-gold
-          path: /app/delta/
+          name: delta-gold-th${{ matrix.th }}
+          path: /app/delta/gold/JT_th${{ matrix.th }}
 
   # ============================================
   # Étape 6 — ML Stage
@@ -293,17 +301,17 @@ jobs:
           name: dataset
           path: /app/data/
 
-      - name: Download Delta Gold
+      - name: Download matching Delta Gold
         uses: actions/download-artifact@v4
         with:
-          name: delta-gold
-          path: /app/delta-base/
+          name: delta-gold-th${{ matrix.exp.th }}
+          path: /app/delta/gold/JT_th${{ matrix.exp.th }}
 
       - name: Prepare isolated Delta directory
         run: |
           DELTA_ISO="/app/delta-${{ matrix.exp.tag }}"
           echo "🧩 Creating isolated Delta base: $DELTA_ISO"
-          cp -r /app/delta-base "$DELTA_ISO"
+          cp -r /app/delta "$DELTA_ISO"
 
       - name: Run ML stage (matrix experiment)
         run: |
