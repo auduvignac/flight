@@ -648,6 +648,10 @@ object Main {
 
     val paths = PathResolver.resolve(cfg)
 
+    logger.info(s"[Paths] bronzeFlights=${paths.bronzeFlights}")
+    logger.info(s"[Paths] silverFlights=${paths.silverFlights}")
+    logger.info(s"[Paths] goldJT=${paths.goldJT}")
+
     cfg.stage.toLowerCase match {
       case "bronze" => runBronze(spark, paths)
       case "silver" => runSilver(spark, paths)

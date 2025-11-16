@@ -17,31 +17,29 @@ final case class IOPaths(
 object PathResolver {
 
   def resolve(cfg: AppConfig): IOPaths = {
-
-    // === Sélection de la base Delta effective ===
-    // Si --deltaBase est fourni en CLI, il a priorité.
-    val deltaBase = cfg.deltaBase.getOrElse {
+    // 1) Base Delta effective
+    val effectiveDeltaBase: String = cfg.deltaBase.getOrElse {
+      // fallback : garde le schéma “/app/delta/{bronze|silver|gold}”
       cfg.env match {
-        case Environment.Hadoop => cfg.hDeltaGoldBase
-        case _                  => cfg.deltaGoldBase
+        case Environment.Hadoop => cfg.hDeltaGoldBase.dropRight("/gold".length)
+        case _                  => cfg.deltaGoldBase.dropRight("/gold".length)
       }
     }
 
-    // === Sélection des répertoires d'entrée ===
+    // 2) Entrées
     val (fDir, wDir, map) = cfg.env match {
       case Environment.Local =>
         (cfg.inFlightsDir, cfg.inWeatherDir, cfg.inMapping)
       case Environment.Hadoop =>
         (cfg.hInFlightsDir, cfg.hInWeatherDir, cfg.hInMapping)
     }
-
-    // === Résolution des chemins d'entrée ===
     val flightsInputs = cfg.monthsF.map(m => s"$fDir/$m.csv")
     val weatherInputs = cfg.monthsW.map(m => s"$wDir/${m}hourly.txt")
 
-    // === Résolution des chemins Delta ===
-    val bronzeBase = deltaBase.replace("gold", "bronze")
-    val silverBase = deltaBase.replace("gold", "silver")
+    // 3) Sous-arborescences Delta (dérivées de la base effective)
+    val bronzeBase = s"$effectiveDeltaBase/bronze"
+    val silverBase = s"$effectiveDeltaBase/silver"
+    val goldBase   = s"$effectiveDeltaBase/gold"
 
     IOPaths(
       flightsInputs = flightsInputs,
@@ -51,7 +49,7 @@ object PathResolver {
       bronzeWeather = s"$bronzeBase/weather",
       silverFlights = s"$silverBase/flights",
       silverWeatherFiltered = s"$silverBase/weather_filtered",
-      goldJT = s"$deltaBase/JT_th${cfg.thMinutes}"
+      goldJT = s"$goldBase/JT_th${cfg.thMinutes}"
     )
   }
 }

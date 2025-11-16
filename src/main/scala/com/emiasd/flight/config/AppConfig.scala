@@ -160,9 +160,12 @@ object AppConfig {
     logger.info(s"Months Weather       : ${cfg.monthsW.mkString(", ")}")
     logger.info(s"Spark Master         : ${cfg.sparkMaster}")
     logger.info(s"Spark App Name       : ${cfg.sparkAppName}")
+    // bases déclarées dans le conf
     logger.info(s"Delta Bronze Base    : ${cfg.deltaBronzeBase}")
     logger.info(s"Delta Silver Base    : ${cfg.deltaSilverBase}")
     logger.info(s"Delta Gold Base      : ${cfg.deltaGoldBase}")
+    // base passée en CLI (optionnelle)
+    logger.info(s"Delta Base (CLI opt) : ${cfg.deltaBase.getOrElse("-")}")
     logger.info(s"Dataset (opt)        : ${cfg.ds.getOrElse("-")}")
     logger.info(s"OriginHours (opt)    : ${cfg.originHours.getOrElse("-")}")
     logger.info(s"DestHours (opt)      : ${cfg.destHours.getOrElse("-")}")
