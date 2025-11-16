@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 set -e
 
-# ==============================================
-# 🚀 Spark Submit Script (Template compatible)
-# ==============================================
-
 # --- Vérification des arguments ---
 if [ $# -lt 1 ]; then
   echo "Usage:"
-  echo "  $0 <stage>"
+  echo "  $0 <stage> [--ds=D2 --th=60 --originHours=7 --destHours=7 --tag=MyExp]"
   echo "  stage ∈ {bronze, silver, gold, all}"
   exit 1
 fi
 
 # --- Paramètres par défaut ---
-STAGE=${1:-"all"}
+STAGE=$1
+shift  # Supprime le premier argument (stage)
+EXTRA_ARGS="$@"
 
-# --- JAR location (cf. run-app.sh) ---
+# --- JAR location ---
 JAR="/app/flight-assembly.jar"
 MAIN_CLASS="com.emiasd.flight.Main"
 
@@ -41,10 +39,13 @@ echo "Classe      : $MAIN_CLASS"
 echo "Log4j conf  : $LOG_CONF"
 echo "flight conf : $CFG_FILE"
 echo "spark conf  : $SPARK_CONF"
-echo "stage       : $STAGE"
+echo "Stage       : $STAGE"
+echo "Args        : $EXTRA_ARGS"
 echo "=============================================="
 
 spark-submit \
   --properties-file "$SPARK_CONF" \
   --class "$MAIN_CLASS" \
-  "$JAR" "$STAGE"
+  "$JAR" \
+  --stage="$STAGE" \
+  $EXTRA_ARGS
