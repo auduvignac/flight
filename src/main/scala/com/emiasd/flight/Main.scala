@@ -638,13 +638,22 @@ object Main {
   def runPipeline(cfg: AppConfig): Unit = {
     logger.info(s"Étape demandée : ${cfg.stage}")
 
-    val spark = SparkSession
-      .builder()
-      .appName(cfg.sparkAppName)
-      .master(cfg.sparkMaster)
-      .config("spark.sql.extensions", cfg.sparkSqlExtensions)
-      .config("spark.sql.catalog.spark_catalog", cfg.sparkSqlCatalog)
-      .getOrCreate()
+    val spark = {
+      val b = SparkSession
+        .builder()
+        .appName(cfg.sparkAppName)
+        .master(cfg.sparkMaster)
+        .config("spark.sql.extensions", cfg.sparkSqlExtensions)
+        .config("spark.sql.catalog.spark_catalog", cfg.sparkSqlCatalog)
+
+      // Log + application des configs utilisateur
+      cfg.sparkConfs.foreach { case (k, v) =>
+        logger.info(s"[SparkConfig] Applying $k = $v")
+        b.config(k, v)
+      }
+
+      b.getOrCreate()
+    }
 
     val paths = PathResolver.resolve(cfg)
 
