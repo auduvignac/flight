@@ -94,7 +94,7 @@ object ModelingPipeline {
       fiDF.show(30, truncate = false)
 
     } catch {
-      case e: Throwable =>
+      case e: Exception =>
         logger.warn(
           s"[ModelingPipeline] Impossible de calculer les importances pour $tag : ${e.getMessage}"
         )
