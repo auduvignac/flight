@@ -3,7 +3,7 @@ package com.emiasd.flight
 // =======================
 // Imports
 // =======================
-import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetsInspection}
+import com.emiasd.flight.analysis.{BronzeAnalysis, SilverAnalysis, TargetsInspection, WeatherFeatureDiagnostics}
 import com.emiasd.flight.bronze.{FlightsBronze, WeatherBronze}
 import com.emiasd.flight.config.{AppConfig, Environment}
 import com.emiasd.flight.io.{Readers, Writers}
@@ -353,7 +353,52 @@ object Main {
   }
 
   // =======================
-  // Étape 4 : SPARK ML
+  // Étape 4 : DIAGNOSTICS
+  // =======================
+  def runDiagnostics(spark: SparkSession, paths: IOPaths, cfg: AppConfig): Unit = {
+    logger.info("=== Étape DIAGNOSTICS ===")
+
+    // Vérification de la présence de la table Gold
+    val goldJTExists = Readers.exists(spark, paths.goldJT)
+
+    if (!goldJTExists) {
+      logger.warn(
+        "Aucune table Gold trouvée — lancement automatique de runGold()"
+      )
+      runGold(spark, paths, cfg)
+    } else {
+      logger.info(
+        "La table Gold est présente — passage direct aux diagnostics."
+      )
+    }
+
+    // Extraction des paramètres pour les diagnostics
+    val ds = cfg.ds.getOrElse("D2")
+    val th = cfg.thMinutes
+    val originHours = cfg.originHours.getOrElse(7)
+    val destHours = cfg.destHours.getOrElse(7)
+
+    logger.info(
+      s"Lancement des diagnostics météo : ds=$ds, th=$th, originHours=$originHours, destHours=$destHours"
+    )
+
+    WeatherFeatureDiagnostics.runDiagnostics(
+      spark,
+      paths.goldJT,
+      paths.silverWeatherFiltered,
+      paths.silverFlights,
+      paths.bronzeWeather,
+      ds,
+      th,
+      originHours,
+      destHours
+    )
+
+    logger.info("=== Étape DIAGNOSTICS terminée ===")
+  }
+
+  // =======================
+  // Étape 5 : SPARK ML
   // =======================
   def runModeling(
     spark: SparkSession,
@@ -589,7 +634,7 @@ object Main {
           // MODÉLISATION
           opt[String]("stage")
             .action((x, c) => c.copy(stage = x.toLowerCase))
-            .text("Étape à exécuter : bronze, silver, gold, ml, all"),
+            .text("Étape à exécuter : bronze, silver, gold, diagnostics, ml, all"),
           opt[String]("ds")
             .action((x, c) => c.copy(ds = Some(x)))
             .text("Dataset (D1, D2, D3, D4)"),
@@ -656,6 +701,7 @@ object Main {
       case "bronze" => runBronze(spark, paths)
       case "silver" => runSilver(spark, paths)
       case "gold"   => runGold(spark, paths, cfg)
+      case "diagnostics" => runDiagnostics(spark, paths, cfg)
       case "ml"     => runModeling(spark, paths, cfg)
       case "all" =>
         runBronze(spark, paths)
@@ -664,7 +710,7 @@ object Main {
         runModeling(spark, paths, cfg)
       case other =>
         logger.error(
-          s"❌ Étape inconnue: $other (bronze, silver, gold, ml, all)"
+          s"Étape inconnue: $other (bronze, silver, gold, diagnostics, ml, all)"
         )
         sys.exit(1)
     }
