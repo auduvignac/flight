@@ -207,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/auduvignac/flight:latest
-    timeout-minutes: 45
+    timeout-minutes: 360
     strategy:
       matrix:
         th: [15, 30, 45, 60, 90]
