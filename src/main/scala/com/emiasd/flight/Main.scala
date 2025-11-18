@@ -355,7 +355,11 @@ object Main {
   // =======================
   // Étape 4 : DIAGNOSTICS
   // =======================
-  def runDiagnostics(spark: SparkSession, paths: IOPaths, cfg: AppConfig): Unit = {
+  def runDiagnostics(
+    spark: SparkSession,
+    paths: IOPaths,
+    cfg: AppConfig
+  ): Unit = {
     logger.info("=== Étape DIAGNOSTICS ===")
 
     // Vérification de la présence de la table Gold
@@ -373,10 +377,10 @@ object Main {
     }
 
     // Extraction des paramètres pour les diagnostics
-    val ds = cfg.ds.getOrElse("D2")
-    val th = cfg.thMinutes
+    val ds          = cfg.ds.getOrElse("D2")
+    val th          = cfg.thMinutes
     val originHours = cfg.originHours.getOrElse(7)
-    val destHours = cfg.destHours.getOrElse(7)
+    val destHours   = cfg.destHours.getOrElse(7)
 
     logger.info(
       s"Lancement des diagnostics météo : ds=$ds, th=$th, originHours=$originHours, destHours=$destHours"
@@ -634,7 +638,9 @@ object Main {
           // MODÉLISATION
           opt[String]("stage")
             .action((x, c) => c.copy(stage = x.toLowerCase))
-            .text("Étape à exécuter : bronze, silver, gold, diagnostics, ml, all"),
+            .text(
+              "Étape à exécuter : bronze, silver, gold, diagnostics, ml, all"
+            ),
           opt[String]("ds")
             .action((x, c) => c.copy(ds = Some(x)))
             .text("Dataset (D1, D2, D3, D4)"),
@@ -698,11 +704,11 @@ object Main {
     logger.info(s"[Paths] goldJT=${paths.goldJT}")
 
     cfg.stage.toLowerCase match {
-      case "bronze" => runBronze(spark, paths)
-      case "silver" => runSilver(spark, paths)
-      case "gold"   => runGold(spark, paths, cfg)
+      case "bronze"      => runBronze(spark, paths)
+      case "silver"      => runSilver(spark, paths)
+      case "gold"        => runGold(spark, paths, cfg)
       case "diagnostics" => runDiagnostics(spark, paths, cfg)
-      case "ml"     => runModeling(spark, paths, cfg)
+      case "ml"          => runModeling(spark, paths, cfg)
       case "all" =>
         runBronze(spark, paths)
         runSilver(spark, paths)

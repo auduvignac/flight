@@ -25,7 +25,6 @@ object WeatherSlim {
 
     val joined = weatherBronze.join(tz, Seq("WBAN"), "inner")
 
-
     val df = joined
       .withColumn("tz_offset_min", coalesce(col("tz_hour") * lit(60), lit(0)))
       .withColumn(
