@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, feature/weather-aggregates-and-perf-tuning]
+    branches: [main, fix/weather-timestamp-parsing-zero-importance]
   pull_request:
   workflow_dispatch:
 
