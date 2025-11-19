@@ -29,7 +29,9 @@ object WeatherSlim {
       )
       .dropDuplicates("WBAN")
 
-    logger.info(s"[WeatherSlim] Timezone mapping contains ${tz.count()} unique WBANs")
+    logger.info(
+      s"[WeatherSlim] Timezone mapping contains ${tz.count()} unique WBANs"
+    )
 
     // INNER join: Only keep weather observations with valid airport_id mapping
     // This filters out weather stations not associated with airports
@@ -38,15 +40,17 @@ object WeatherSlim {
 
     // Validation: count rows after join and warn if excessive loss
     val countAfter = joined.count()
-    val lossRate = 100.0 * (countBefore - countAfter) / countBefore
-    
+    val lossRate   = 100.0 * (countBefore - countAfter) / countBefore
+
     logger.info(s"[WeatherSlim] Weather rows after INNER join: $countAfter")
-    logger.info(s"[WeatherSlim] Data loss: ${countBefore - countAfter} rows (${lossRate}%.2f%%)")
-    
+    logger.info(
+      s"[WeatherSlim] Data loss: ${countBefore - countAfter} rows (${lossRate}%.2f%%)"
+    )
+
     if (lossRate > 15.0) {
       logger.warn(
         s"⚠️ INNER join dropped ${lossRate}%.2f%% of weather data! " +
-        s"Expected <15%. Check timezone mapping file: $wbanTzPath"
+          s"Expected <15%. Check timezone mapping file: $wbanTzPath"
       )
     } else {
       logger.info(s"✓ Data loss is acceptable (${lossRate}%.2f%% < 15%)")
