@@ -1,3 +1,9 @@
+version: "3.9"
+
+volumes:
+  spark-delta:
+  spark-local:
+
 x-env-common: &common-env
   LOG_CONFIG_PATH: /opt/spark/conf/log4j2.properties
   APPLICATION_CONFIG_PATH: /opt/config/application.conf
@@ -6,6 +12,7 @@ x-env-common: &common-env
   SPARK_CONF: /opt/spark/conf/spark.conf
 
 services:
+
   spark-master:
     image: ghcr.io/auduvignac/flight:latest
     container_name: spark-master
@@ -15,9 +22,9 @@ services:
       SPARK_MASTER_HOST: spark-master
       ROLE: MASTER
     volumes:
-      - ./data:/app/data
-      - ./delta:/app/delta
-      - ./spark-local:/opt/spark/local
+      - ./data:/app/data                  # dataset local rapide
+      - spark-delta:/app/delta            # delta FROID & rapide
+      - spark-local:/opt/spark/local      # shuffle ultra rapide
       - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
       - ./conf/application.conf:/opt/config/application.conf:ro
       - ./conf/log4j2-submit.properties:/opt/spark/conf/log4j2.properties:ro
@@ -35,8 +42,8 @@ services:
       ROLE: WORKER
     volumes:
       - ./data:/app/data
-      - ./delta:/app/delta
-      - ./spark-local:/opt/spark/local
+      - spark-delta:/app/delta
+      - spark-local:/opt/spark/local
       - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
     depends_on:
       - spark-master
@@ -51,8 +58,8 @@ services:
       ROLE: SUBMIT
     volumes:
       - ./data:/app/data
-      - ./delta:/app/delta
-      - ./spark-local:/opt/spark/local
+      - spark-delta:/app/delta
+      - spark-local:/opt/spark/local
       - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
       - ./conf/application.conf:/opt/config/application.conf:ro
       - ./conf/log4j2-submit.properties:/opt/spark/conf/log4j2.properties:ro
