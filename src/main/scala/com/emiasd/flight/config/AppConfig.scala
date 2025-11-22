@@ -3,7 +3,8 @@ package com.emiasd.flight.config
 import com.typesafe.config.{Config, ConfigFactory}
 import org.apache.log4j.Logger
 
-import scala.collection.JavaConverters._ // Scala 2.12.x
+import java.io.File
+import scala.collection.JavaConverters._
 
 final case class AppConfig(
   // === Environment ===
@@ -55,11 +56,17 @@ object AppConfig {
 
   val logger = Logger.getLogger(getClass.getName)
 
+  // ============================================================
+  // ENV
+  // ============================================================
   private def envOf(s: String): Environment = s match {
     case "Hadoop" => Environment.Hadoop
     case _        => Environment.Local
   }
 
+  // ============================================================
+  // Utils — lectures de listes
+  // ============================================================
   private def getSeq(c: Config, path: String): Seq[String] =
     c.getStringList(path).asScala.toVector
 
@@ -76,8 +83,41 @@ object AppConfig {
       .toMap
   }
 
+  // ============================================================
+  // Wildcard : months = ["*"] → lister tous les fichiers CSV
+  // ============================================================
+  private def resolveWildcardMonths(
+    dir: String,
+    months: Seq[String]
+  ): Seq[String] =
+    if (months.size == 1 && months.head == "*") {
+
+      val folder = new File(dir)
+      if (!folder.exists() || !folder.isDirectory)
+        throw new RuntimeException(s"[AppConfig] Répertoire invalide : $dir")
+
+      val discovered =
+        folder
+          .listFiles()
+          .filter(f => f.isFile && f.getName.endsWith(".csv"))
+          .map(_.getName.stripSuffix(".csv"))
+          .sorted
+          .toSeq
+
+      logger.info(
+        s"[AppConfig] Wildcard détecté dans $dir → ${discovered.size} fichiers trouvés : ${discovered
+            .mkString(", ")}"
+      )
+
+      discovered
+    } else {
+      months
+    }
+
+  // ============================================================
+  // LOAD
+  // ============================================================
   def load(): AppConfig = {
-    import java.io.File
 
     // Déterminer le chemin du fichier externe
     val configPathOpt =
@@ -85,16 +125,18 @@ object AppConfig {
         sys.env.get("APPLICATION_CONFIG_PATH") orElse
         sys.props.get("spark.app.config")
 
-    // Chargement de la configuration externe si elle existe, sinon fallback sur ConfigFactory.load()
+    // Lecture du fichier config externe si fourni
     val root = configPathOpt match {
       case Some(path) if new File(path).exists() =>
         logger.info(s"[AppConfig] Chargement du fichier externe : $path")
         ConfigFactory.parseFile(new File(path)).resolve()
+
       case Some(path) =>
         logger.info(
           s"[AppConfig] ⚠️ Fichier indiqué mais introuvable à $path — fallback sur le conf embarqué."
         )
         ConfigFactory.load()
+
       case None =>
         logger.info(
           "[AppConfig] Aucun chemin externe fourni — chargement du conf embarqué (application.conf du JAR)."
@@ -109,24 +151,50 @@ object AppConfig {
       )
     }
 
-    // Extraction des sections
+    // Extraction sections
     val app   = root.getConfig("app")
     val spark = root.getConfig("spark")
 
+    val envParsed = envOf(app.getString("env"))
+
+    // Lecture brute
+    val rawMonthsF = getSeq(app, "input.months_f")
+    val rawMonthsW = getSeq(app, "input.months_w")
+
+    // Résolution wildcard uniquement en mode Local (pas en Hadoop)
+    val monthsFResolved =
+      if (envParsed == Environment.Local)
+        resolveWildcardMonths(app.getString("input.flights.dir"), rawMonthsF)
+      else
+        rawMonthsF
+
+    val monthsWResolved =
+      if (envParsed == Environment.Local)
+        resolveWildcardMonths(app.getString("input.weather.dir"), rawMonthsW)
+      else
+        rawMonthsW
+
+    // ============================================================
+    // Construction finale
+    // ============================================================
     AppConfig(
-      env = envOf(app.getString("env")),
+      env = envParsed,
+
       // Local inputs
       inFlightsDir = app.getString("input.flights.dir"),
       inWeatherDir = app.getString("input.weather.dir"),
       inMapping = app.getString("input.mapping"),
+
       // Hadoop inputs
       hInFlightsDir = app.getConfig("hadoop").getString("input.flights.dir"),
       hInWeatherDir = app.getConfig("hadoop").getString("input.weather.dir"),
       hInMapping = app.getConfig("hadoop").getString("input.mapping"),
+
       // Local outputs
       deltaBronzeBase = app.getString("output.delta.base.bronze"),
       deltaSilverBase = app.getString("output.delta.base.silver"),
       deltaGoldBase = app.getString("output.delta.base.gold"),
+
       // Hadoop outputs
       hDeltaBronzeBase =
         app.getConfig("hadoop").getString("output.delta.base.bronze"),
@@ -134,12 +202,14 @@ object AppConfig {
         app.getConfig("hadoop").getString("output.delta.base.silver"),
       hDeltaGoldBase =
         app.getConfig("hadoop").getString("output.delta.base.gold"),
+
       // Params
-      monthsF = getSeq(app, "input.months_f"),
-      monthsW = getSeq(app, "input.months_w"),
+      monthsF = monthsFResolved,
+      monthsW = monthsWResolved,
       thMinutes = app.getConfig("params").getInt("thMinutes"),
       missingnessThreshold =
         app.getConfig("params").getDouble("missingness.threshold"),
+
       // Spark
       sparkMaster = spark.getString("master"),
       sparkAppName = spark.getString("appName"),
@@ -149,7 +219,9 @@ object AppConfig {
     )
   }
 
-  /** Affiche la configuration chargée dans les logs. */
+  // ============================================================
+  // LOG CONFIG
+  // ============================================================
   def logConfig(cfg: AppConfig): Unit = {
     logger.info("========== Configuration Active ==========")
     logger.info(s"Environnement        : ${cfg.env}")
@@ -160,11 +232,9 @@ object AppConfig {
     logger.info(s"Months Weather       : ${cfg.monthsW.mkString(", ")}")
     logger.info(s"Spark Master         : ${cfg.sparkMaster}")
     logger.info(s"Spark App Name       : ${cfg.sparkAppName}")
-    // bases déclarées dans le conf
     logger.info(s"Delta Bronze Base    : ${cfg.deltaBronzeBase}")
     logger.info(s"Delta Silver Base    : ${cfg.deltaSilverBase}")
     logger.info(s"Delta Gold Base      : ${cfg.deltaGoldBase}")
-    // base passée en CLI (optionnelle)
     logger.info(s"Delta Base (CLI opt) : ${cfg.deltaBase.getOrElse("-")}")
     logger.info(s"Dataset (opt)        : ${cfg.ds.getOrElse("-")}")
     logger.info(s"OriginHours (opt)    : ${cfg.originHours.getOrElse("-")}")
