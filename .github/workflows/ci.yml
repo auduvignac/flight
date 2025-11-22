@@ -1,15 +1,16 @@
-name: CI/CD - Flight Project (Optimized with Dataset Management)
+name: CI/CD - Flight Project (Optimized)
 
 on:
   push:
-    branches: [main, fix/weather-timestamp-parsing-zero-importance]
+    branches: [main, optimize/writing-delta]
   pull_request:
   workflow_dispatch:
 
 jobs:
-  # ============================================
-  # Étape 0 — Préparation du Dataset
-  # ============================================
+
+  # =========================================================
+  # Étape 0 — Prepare dataset
+  # =========================================================
   prepare-dataset:
     name: 📦 Prepare Dataset
     runs-on: ubuntu-latest
@@ -17,43 +18,41 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Ensure unzip and wget are available
+
+      - name: Ensure unzip/wget
         run: sudo apt-get update -y && sudo apt-get install -y unzip wget curl
+
       - name: Run dataset preparation script
         run: |
           chmod +x get-data.sh
           ./get-data.sh
 
-      - name: Upload dataset artifact
+      - name: Upload dataset
         uses: actions/upload-artifact@v4
         with:
           name: dataset
           path: data/
 
-  # ============================================
-  # Étape 1 — Build Scala & Quality Checks
-  # ============================================
+  # =========================================================
+  # Étape 1 — Build Scala + Tests
+  # =========================================================
   scala-build:
     name: 🧩 Scala Build & Tests
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
 
-      - name: Setup SBT
-        uses: coursier/setup-action@v1
+      - uses: coursier/setup-action@v1
         with:
           apps: sbt
 
-      - name: Cache SBT and Ivy
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: |
             ~/.ivy2/cache
@@ -66,37 +65,31 @@ jobs:
       - name: Clean corrupted Ivy cache
         run: find ~/.ivy2/cache -name "ivydata-*.properties" -delete || true
 
-      # Vérification du style de code
-      - name: Check Scalafmt formatting
+      - name: Scalafmt
         run: sbt scalafmtCheckAll
 
-      # Vérification des règles Scalafix
-      - name: Check Scalafix rules
+      - name: Scalafix
         run: sbt "scalafix --check"
 
-      # Compilation stricte
-      - name: Compile project
+      - name: Compile
         run: sbt -warn compile
 
-      # Tests unitaires
-      - name: Run tests
+      - name: Tests
         run: sbt test
 
-      # Génération du JAR pour l'étape Docker
-      - name: Build Assembly JAR
+      - name: Assembly
         run: sbt clean assembly
 
-      - name: Upload JAR artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: flight-assembly
           path: target/scala-2.12/flight-assembly.jar
 
-  # ============================================
-  # Étape 2 — Build Docker image
-  # ============================================
+  # =========================================================
+  # Étape 2 — Build docker image
+  # =========================================================
   docker-build:
-    name: 🐳 Build & Push Runtime Docker Image
+    name: 🐳 Build & Push Docker Image
     needs: scala-build
     runs-on: ubuntu-latest
     permissions:
@@ -104,29 +97,27 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download built JAR
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: flight-assembly
           path: .
 
-      - name: Log in to GHCR
+      - name: Login GHCR
         run: echo ${{ secrets.CR_PAT }} | docker login ghcr.io -u auduvignac --password-stdin
 
-      - name: Build and Push Docker image
+      - name: Build & Push
         run: |
-          IMAGE_NAME=ghcr.io/auduvignac/flight:latest
-          docker build -f Dockerfile.custom -t $IMAGE_NAME .
-          docker push $IMAGE_NAME
+          IMAGE=ghcr.io/auduvignac/flight:latest
+          docker build -f Dockerfile.custom -t $IMAGE .
+          docker push $IMAGE
 
-  # ============================================
-  # Étape 3 — Bronze Stage
-  # ============================================
+  # =========================================================
+  # Étape 3 — Bronze
+  # =========================================================
   bronze:
-    name: 🟤 Bronze - Ingestion & Enrichment
+    name: 🟤 Bronze
     needs: [prepare-dataset, docker-build]
     runs-on: ubuntu-latest
     container:
@@ -136,32 +127,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download dataset
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: dataset
           path: /app/data/
 
-      - name: Run Bronze stage
+      - name: Run Bronze
         run: ./run-app.sh --stage=bronze --local
 
-      - name: Upload Bronze analysis
-        uses: actions/upload-artifact@v4
-        with:
-          name: analysis-bronze
-          path: analysis/
+      - name: Compress Delta Bronze
+        run: tar -czf delta-bronze.tgz /app/delta
 
-      - name: Upload Delta Bronze
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: delta-bronze
-          path: /app/delta/
+          path: delta-bronze.tgz
 
-  # ============================================
-  # Étape 4 — Silver Stage
-  # ============================================
+  # =========================================================
+  # Étape 4 — Silver
+  # =========================================================
   silver:
-    name: ⚪ Silver - Cleaning & Standardization
+    name: ⚪ Silver
     needs: bronze
     runs-on: ubuntu-latest
     container:
@@ -171,43 +157,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download dataset
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: dataset
           path: /app/data/
 
-      - name: Download Delta Bronze
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: delta-bronze
-          path: /app/delta/
+          path: .
 
-      - name: Run Silver stage
+      - name: Extract Delta Bronze
+        run: |
+          rm -rf /app/delta
+          tar -xzf delta-bronze.tgz -C /
+
+      - name: Run Silver
         run: ./run-app.sh --stage=silver --local
 
-      - name: Upload Silver analysis
-        uses: actions/upload-artifact@v4
-        with:
-          name: analysis-silver
-          path: analysis/
+      - name: Compress Delta Silver
+        run: tar -czf delta-silver.tgz /app/delta
 
-      - name: Upload Delta Silver
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: delta-silver
-          path: /app/delta/
+          path: delta-silver.tgz
 
-  # ============================================
-  # Étape 5 — Gold Stage
-  # ============================================
+  # =========================================================
+  # Étape 5 — Gold (matrix)
+  # =========================================================
   gold:
-    name: 🟡 Gold - Build Joint Tables
+    name: 🟡 Gold
     needs: silver
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     container:
       image: ghcr.io/auduvignac/flight:latest
-    timeout-minutes: 360
+
     strategy:
       matrix:
         th: [15, 30, 45, 60, 90]
@@ -215,43 +201,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download dataset
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: dataset
           path: /app/data/
 
-      - name: Download Delta Silver
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: delta-silver
-          path: /app/delta/
+          path: .
 
-      - name: Build Gold for threshold
+      - name: Extract Delta Silver
         run: |
-          echo "Building Gold for threshold ${{ matrix.th }} minutes"
-          ./run-app.sh \
-            --stage=gold --local \
-            --deltaBase="/app/delta" \
-            --th=${{ matrix.th }}
+          rm -rf /app/delta
+          tar -xzf delta-silver.tgz -C /
 
-      - name: Upload Delta Gold
-        uses: actions/upload-artifact@v4
+      - name: Build Gold
+        run: |
+          ./run-app.sh --stage=gold --local --th=${{ matrix.th }}
+
+      - name: Compress Delta Gold
+        run: tar -czf delta-gold-th${{ matrix.th }}.tgz /app/delta/gold/
+
+      - uses: actions/upload-artifact@v4
         with:
           name: delta-gold-th${{ matrix.th }}
-          path: /app/delta/gold/
+          path: delta-gold-th${{ matrix.th }}.tgz
 
-
-  # ============================================
-  # Étape 6 — ML Stage
-  # ============================================
+  # =========================================================
+  # Étape 6 — ML (matrix)
+  # =========================================================
   ml:
-    name: 🧠 ML - Feature Engineering & Modeling
+    name: 🧠 ML
     needs: gold
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     container:
       image: ghcr.io/auduvignac/flight:latest
-    timeout-minutes: 60
 
     strategy:
       fail-fast: false
@@ -296,40 +282,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download dataset
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: dataset
           path: /app/data/
 
-      - name: Download matching Delta Gold
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           name: delta-gold-th${{ matrix.exp.th }}
-          path: /app/delta-tmp/
+          path: .
 
-      - name: Prepare isolated Delta directory
+      - name: Extract Delta Gold
         run: |
-          DELTA_ISO="/app/delta-${{ matrix.exp.tag }}"
-          echo "🧩 Creating isolated Delta base: $DELTA_ISO"
-          mkdir -p "$DELTA_ISO/gold"
-          cp -r /app/delta-tmp/* "$DELTA_ISO/gold/"
-          echo "Copied $(ls $DELTA_ISO/gold)"
+          rm -rf /app/delta
+          mkdir -p /app/delta
+          tar -xzf delta-gold-th${{ matrix.exp.th }}.tgz -C /
 
-      - name: Run ML stage (matrix experiment)
+      - name: Run ML
         run: |
-          echo "🚀 Running ML experiment: ${{ matrix.exp.tag }}"
           ./run-app.sh \
             --stage=ml --local \
-            --deltaBase="/app/delta-${{ matrix.exp.tag }}" \
+            --deltaBase="/app/delta" \
             --ds=${{ matrix.exp.ds }} \
             --th=${{ matrix.exp.th }} \
             --originHours=${{ matrix.exp.origin }} \
             --destHours=${{ matrix.exp.dest }} \
             --tag=${{ matrix.exp.tag }}
 
-      - name: Upload ML analysis
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: analysis-${{ matrix.exp.tag }}
           path: analysis/
