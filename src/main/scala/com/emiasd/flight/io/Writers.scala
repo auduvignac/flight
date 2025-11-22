@@ -1,26 +1,18 @@
 package com.emiasd.flight.io
 
-import io.delta.tables._
 import org.apache.log4j.Logger
-import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession} // Delta Lake API
+import org.apache.spark.sql.{DataFrame, SaveMode, SparkSession}
 
 object Writers {
 
   /**
-   * Écriture Delta optimisée + auto-coalesce + OPTIMIZE + ZORDER.
+   * Écriture Delta unifiée pour Bronze, Silver et Gold.
    *
-   * @param df
-   *   DataFrame à écrire
-   * @param path
-   *   Emplacement Delta Lake
-   * @param partitions
-   *   Colonnes de partitionnement
-   * @param overwriteSchema
-   *   Écraser le schéma si nécessaire
-   * @param maxFiles
-   *   Nombre maximum de fichiers parquet
+   * @param mode
+   *   "standard" → Bronze/Silver (écriture simple) "gold" → OPTIMIZE + ZORDER
+   *   activés
    * @param zorderCols
-   *   Colonnes pour ZORDER (optionnel)
+   *   Liste des colonnes ZORDER (utilisé seulement en mode gold)
    */
   def writeDelta(
     df: DataFrame,
@@ -28,75 +20,73 @@ object Writers {
     partitions: Seq[String] = Nil,
     overwriteSchema: Boolean = false,
     maxFiles: Int = 200,
-    zorderCols: Seq[String] = Nil
+    mode: String = "standard",    // "standard" ou "gold"
+    zorderCols: Seq[String] = Nil // utilisé seulement pour gold
   )(spark: SparkSession): Unit = {
 
     val logger = Logger.getLogger(getClass.getName)
+    val isGold = mode.toLowerCase == "gold"
 
+    logger.info(s"[Writer][$mode] Initialisation de l'écriture Delta")
+
+    // ==============================================================
+    // 1. AUTO-COALESCE INTELLIGENT
+    // ==============================================================
     val initialParts = df.rdd.getNumPartitions
-    logger.info(s"[Writers] Partitions initiales : $initialParts")
+    logger.info(s"[Writer][$mode] Partitions initiales DF = $initialParts")
 
-    // ======================================================
-    // AUTO-COALESCE INTELLIGENT
-    // ======================================================
-    val dfOptimized =
+    val dfOptim =
       if (initialParts > maxFiles) {
-        logger.info(
-          s"[Writers] Coalesce → $maxFiles partitions (au lieu de $initialParts)"
-        )
+        logger.info(s"[Writer][$mode] Coalesce → $maxFiles partitions")
         df.coalesce(maxFiles)
-      } else {
-        logger.info("[Writers] Coalesce non nécessaire.")
-        df
-      }
+      } else df
 
-    // ======================================================
-    // ÉCRITURE DELTA
-    // ======================================================
+    // ==============================================================
+    // 2. ÉCRITURE DELTA
+    // ==============================================================
     val writerBase =
-      dfOptimized.write
+      dfOptim.write
         .format("delta")
         .mode(SaveMode.Overwrite)
         .option("overwriteSchema", overwriteSchema.toString)
 
     val writer =
-      if (partitions.nonEmpty) {
-        logger.info(
-          s"[Writers] Partitionnement Delta : ${partitions.mkString(", ")}"
-        )
-        writerBase.partitionBy(partitions: _*)
-      } else writerBase
+      if (partitions.nonEmpty) writerBase.partitionBy(partitions: _*)
+      else writerBase
 
-    logger.info(s"[Writers] Écriture Delta → $path")
+    logger.info(s"[Writer][$mode] Écriture Delta dans $path")
     writer.save(path)
 
-    // ======================================================
-    // OPTIMIZE + ZORDER
-    // ======================================================
-    try {
-      logger.info(s"[Writers] OPTIMIZE (Delta Lake)...")
+    // ==============================================================
+    // 3. MODE GOLD : OPTIMIZE + ZORDER
+    // ==============================================================
+    if (isGold) {
+      try {
+        logger.info(s"[Writer][gold] OPTIMIZE delta.`$path` (compactage)")
+        spark.sql(s"OPTIMIZE delta.`$path`")
 
-      val deltaTable = DeltaTable.forPath(spark, path)
+        if (zorderCols.nonEmpty) {
+          val cols = zorderCols.mkString(", ")
+          logger.info(s"[Writer][gold] ZORDER BY ($cols)")
+          spark.sql(s"OPTIMIZE delta.`$path` ZORDER BY ($cols)")
+        } else {
+          logger.info("[Writer][gold] Aucun ZORDER (aucune colonne fournie).")
+        }
 
-      // ---- OPTIMIZE ----
-      spark.sql(s"OPTIMIZE delta.`$path`")
-
-      // ---- ZORDER ----
-      if (zorderCols.nonEmpty) {
-        val cols = zorderCols.mkString(", ")
-        logger.info(s"[Writers] ZORDER BY $cols")
-        spark.sql(s"OPTIMIZE delta.`$path` ZORDER BY ($cols)")
-      } else {
-        logger.info("[Writers] ZORDER désactivé (aucune colonne fournie).")
+      } catch {
+        case e: Throwable =>
+          logger.warn(
+            s"[Writer][gold] OPTIMIZE/ZORDER non supporté ou erreur : ${e.getMessage}"
+          )
       }
 
-      logger.info("[Writers] OPTIMIZE + ZORDER terminés ✔")
-
-    } catch {
-      case e: Throwable =>
-        logger.warn(
-          s"[Writers] OPTIMIZE/ZORDER non supporté ou erreur ignorée : ${e.getMessage}"
-        )
+      logger.info("[Writer][gold] Optimisation GOLD terminée ✔")
+    } else {
+      logger.info(
+        s"[Writer][standard] Aucune optimisation GOLD appliquée (mode standard)."
+      )
     }
+
+    logger.info(s"[Writer][$mode] Écriture Delta terminée ✔")
   }
 }

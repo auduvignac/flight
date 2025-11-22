@@ -60,14 +60,16 @@ object Main {
       flightsBronze,
       paths.bronzeFlights,
       Seq("year", "month"),
-      overwriteSchema = true
+      overwriteSchema = true,
+      mode = "standard"
     )(spark)
 
     Writers.writeDelta(
       weatherBronze,
       paths.bronzeWeather,
       Seq("year", "month"),
-      overwriteSchema = true
+      overwriteSchema = true,
+      mode = "standard"
     )(spark)
 
     // Analyses QA sur les jeux Bronze
@@ -141,7 +143,8 @@ object Main {
       flightsSilver,
       paths.silverFlights,
       Seq("year", "month"),
-      overwriteSchema = true
+      overwriteSchema = true,
+      mode = "standard"
     )(spark)
 
     // Analyse QA Silver
@@ -181,7 +184,8 @@ object Main {
       weatherSlim,
       paths.silverWeatherFiltered,
       Seq("year", "month"),
-      overwriteSchema = true
+      overwriteSchema = true,
+      mode = "standard"
     )(spark)
 
     logger.info("Étape Silver terminée avec succès.")
@@ -229,20 +233,22 @@ object Main {
 
     // Écriture du résultat Gold
     logger.info("Écriture de la table GOLD (Joint Table)")
+    val goldZorder = Seq(
+      "origin_airport_id",
+      "dest_airport_id",
+      "dep_ts_utc",
+      "arr_ts_utc",
+      "year",
+      "month",
+      "flight_key"
+    )
     Writers.writeDelta(
       jtOut,
       paths.goldJT,
       Seq("year", "month"),
       overwriteSchema = true,
-      zorderCols = Seq(
-        "origin",
-        "dest",
-        "dep_hour",
-        "arr_hour",
-        "flight_key",
-        "ds",
-        "th"
-      )
+      mode = "gold",
+      zorderCols = goldZorder
     )(spark)
 
     logger.info(s"Table GOLD écrite : ${paths.goldJT}")
@@ -348,7 +354,8 @@ object Main {
       outRoot,
       Seq("ds", "th", "year", "month"),
       overwriteSchema = true,
-      zorderCols = Seq("origin", "dest", "dep_hour", "arr_hour")
+      mode = "gold",
+      zorderCols = Seq("origin_airport_id", "dest_airport_id", "dep_ts_utc")
     )(spark)
 
     logger.info("Étape Gold terminée avec succès.")
