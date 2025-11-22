@@ -57,17 +57,18 @@ object Main {
     // Écriture en Delta Lake
     logger.info("Écriture des tables BRONZE en Delta Lake")
     Writers.writeDelta(
-      flightsBronze.coalesce(2),
+      flightsBronze,
       paths.bronzeFlights,
       Seq("year", "month"),
       overwriteSchema = true
-    )
+    )(spark)
+
     Writers.writeDelta(
-      weatherBronze.coalesce(2),
+      weatherBronze,
       paths.bronzeWeather,
       Seq("year", "month"),
       overwriteSchema = true
-    )
+    )(spark)
 
     // Analyses QA sur les jeux Bronze
     val qaOutDirFile = new java.io.File("analysis")
@@ -137,11 +138,11 @@ object Main {
     // Écriture de la table Silver Flights
     logger.info("Écriture des données Silver Flights")
     Writers.writeDelta(
-      flightsSilver.coalesce(2),
+      flightsSilver,
       paths.silverFlights,
       Seq("year", "month"),
       overwriteSchema = true
-    )
+    )(spark)
 
     // Analyse QA Silver
     val silverQaDirFile = new java.io.File("analysis/silver")
@@ -177,11 +178,11 @@ object Main {
     // Écriture de la météo Silver
     logger.info("Écriture des données Silver Weather Filtered")
     Writers.writeDelta(
-      weatherSlim.coalesce(2),
+      weatherSlim,
       paths.silverWeatherFiltered,
       Seq("year", "month"),
       overwriteSchema = true
-    )
+    )(spark)
 
     logger.info("Étape Silver terminée avec succès.")
   }
@@ -232,8 +233,17 @@ object Main {
       jtOut,
       paths.goldJT,
       Seq("year", "month"),
-      overwriteSchema = true
-    )
+      overwriteSchema = true,
+      zorderCols = Seq(
+        "origin",
+        "dest",
+        "dep_hour",
+        "arr_hour",
+        "flight_key",
+        "ds",
+        "th"
+      )
+    )(spark)
 
     logger.info(s"Table GOLD écrite : ${paths.goldJT}")
 
@@ -337,8 +347,9 @@ object Main {
       toWrite,
       outRoot,
       Seq("ds", "th", "year", "month"),
-      overwriteSchema = true
-    )
+      overwriteSchema = true,
+      zorderCols = Seq("origin", "dest", "dep_hour", "arr_hour")
+    )(spark)
 
     logger.info("Étape Gold terminée avec succès.")
 
