@@ -18,8 +18,6 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 import scopt.OParser
 
-import scala.util.{Failure, Success, Try}
-
 /**
  * Point d'entrée principal pour exécuter le pipeline ETL (Bronze → Silver →
  * Gold)
@@ -69,31 +67,13 @@ object Main {
       overwriteSchema = true
     )
 
-    // Analyses QA sur les jeux Bronze
-    val qaOutDirFile = new java.io.File("analysis")
-    val qaOutDir = Try {
-      if (!qaOutDirFile.exists()) {
-        if (qaOutDirFile.mkdirs())
-          logger.info(s"Répertoire créé : ${qaOutDirFile.getAbsolutePath}")
-        else
-          logger.warn(
-            s"Impossible de créer le répertoire : ${qaOutDirFile.getAbsolutePath}"
-          )
-      }
-      qaOutDirFile.getAbsolutePath
-    } match {
-      case Success(path) => path
-      case Failure(e) =>
-        logger.error(
-          s"Erreur lors de la création du répertoire ${qaOutDirFile.getAbsolutePath}",
-          e
-        )
-        throw e
-    }
+    // Analyses sur les jeux Bronze
+    val bronzeQaDir = s"${paths.analysisDir}/bronze"
+    Writers.mkdirSmart(spark, bronzeQaDir)(logger)
 
     logger.info("Analyse qualité Bronze : vols et météo")
-    BronzeAnalysis.analyzeFlights(flightsBronze, qaOutDir)
-    BronzeAnalysis.analyzeWeather(weatherBronze, qaOutDir)
+    BronzeAnalysis.analyzeFlights(flightsBronze, bronzeQaDir)
+    BronzeAnalysis.analyzeWeather(weatherBronze, bronzeQaDir)
 
     logger.info("Étape Bronze terminée avec succès.")
   }
@@ -144,26 +124,8 @@ object Main {
     )
 
     // Analyse QA Silver
-    val silverQaDirFile = new java.io.File("analysis/silver")
-    val silverQaDir = Try {
-      if (!silverQaDirFile.exists()) {
-        if (silverQaDirFile.mkdirs())
-          logger.info(s"Répertoire créé : ${silverQaDirFile.getAbsolutePath}")
-        else
-          logger.warn(
-            s"Impossible de créer le répertoire : ${silverQaDirFile.getAbsolutePath}"
-          )
-      }
-      silverQaDirFile.getAbsolutePath
-    } match {
-      case Success(path) => path
-      case Failure(e) =>
-        logger.error(
-          s"Erreur lors de la création du répertoire ${silverQaDirFile.getAbsolutePath}",
-          e
-        )
-        throw e
-    }
+    val silverQaDir = s"${paths.analysisDir}/silver"
+    Writers.mkdirSmart(spark, silverQaDir)(logger)
 
     logger.info("Analyse qualité Silver : vols nettoyés")
     val flightsSilverCheck = Readers.readDelta(spark, paths.silverFlights)
@@ -580,6 +542,9 @@ object Main {
             .text("Mapping HDFS"),
 
           // OUTPUTS LOCAL
+          opt[String]("analysisDir")
+            .action((x, c) => c.copy(analysisDir = x))
+            .text("Répertoire local Analysis"),
           opt[String]("deltaBronzeBase")
             .action((x, c) => c.copy(deltaBronzeBase = x))
             .text("Répertoire local Delta Bronze"),
@@ -591,6 +556,9 @@ object Main {
             .text("Répertoire local Delta Gold"),
 
           // OUTPUTS HDFS
+          opt[String]("hanalysisDir")
+            .action((x, c) => c.copy(hanalysisDir = x))
+            .text("Répertoire HDFS Analysis"),
           opt[String]("hDeltaBronzeBase")
             .action((x, c) => c.copy(hDeltaBronzeBase = x))
             .text("Répertoire HDFS Delta Bronze"),

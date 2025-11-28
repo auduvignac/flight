@@ -21,11 +21,13 @@ final case class AppConfig(
   hInMapping: String,
 
   // === Outputs (Local) ===
+  analysisDir: String,
   deltaBronzeBase: String,
   deltaSilverBase: String,
   deltaGoldBase: String,
 
   // === Outputs (Hadoop) ===
+  hanalysisDir: String,
   hDeltaBronzeBase: String,
   hDeltaSilverBase: String,
   hDeltaGoldBase: String,
@@ -124,10 +126,12 @@ object AppConfig {
       hInWeatherDir = app.getConfig("hadoop").getString("input.weather.dir"),
       hInMapping = app.getConfig("hadoop").getString("input.mapping"),
       // Local outputs
+      analysisDir = app.getString("output.analysis.dir"),
       deltaBronzeBase = app.getString("output.delta.base.bronze"),
       deltaSilverBase = app.getString("output.delta.base.silver"),
       deltaGoldBase = app.getString("output.delta.base.gold"),
       // Hadoop outputs
+      hanalysisDir = app.getConfig("hadoop").getString("output.analysis"),
       hDeltaBronzeBase =
         app.getConfig("hadoop").getString("output.delta.base.bronze"),
       hDeltaSilverBase =
@@ -161,6 +165,7 @@ object AppConfig {
     logger.info(s"Spark Master         : ${cfg.sparkMaster}")
     logger.info(s"Spark App Name       : ${cfg.sparkAppName}")
     // bases déclarées dans le conf
+    logger.info(s"Analysis Directory   : ${cfg.analysisDir}")
     logger.info(s"Delta Bronze Base    : ${cfg.deltaBronzeBase}")
     logger.info(s"Delta Silver Base    : ${cfg.deltaSilverBase}")
     logger.info(s"Delta Gold Base      : ${cfg.deltaGoldBase}")
