@@ -278,7 +278,8 @@ object Main {
     logger.info("=== Génération des targets pour tous les seuils ===")
 
     val tau = 0.95
-    val ths = Seq(15, 30, 45, 60, 90)
+    // Utiliser les mêmes seuils que ceux traités (pas hardcodé)
+    val ths = thresholds
 
     // Utiliser la première table JT pour générer les targets
     val firstJTPath = s"$goldBase/JT_th${ths.head}"
@@ -329,11 +330,12 @@ object Main {
     logger.info("Étape Gold terminée avec succès.")
 
     val targetsPath = outRoot
+    // Utiliser le premier seuil traité pour l'inspection
     TargetsInspection.inspectSlice(
       spark,
       targetsPath,
       dsValue = "D2",
-      thValue = 60,
+      thValue = ths.head,
       n = 20
     )
   }
