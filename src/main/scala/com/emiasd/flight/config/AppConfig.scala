@@ -35,7 +35,6 @@ final case class AppConfig(
   // === Processing params ===
   monthsF: Seq[String],
   monthsW: Seq[String],
-  thMinutes: Int,
   missingnessThreshold: Double,
 
   // === Spark ===
@@ -48,6 +47,7 @@ final case class AppConfig(
   // === Exécution / Modélisation ===
   stage: String = "all",
   ds: Option[String] = None,
+  th: Option[Int] = None,
   originHours: Option[Int] = None,
   destHours: Option[Int] = None,
   tag: Option[String] = None
@@ -141,7 +141,6 @@ object AppConfig {
       // Params
       monthsF = getSeq(app, "input.months_f"),
       monthsW = getSeq(app, "input.months_w"),
-      thMinutes = app.getConfig("params").getInt("thMinutes"),
       missingnessThreshold =
         app.getConfig("params").getDouble("missingness.threshold"),
       // Spark
@@ -158,7 +157,6 @@ object AppConfig {
     logger.info("========== Configuration Active ==========")
     logger.info(s"Environnement        : ${cfg.env}")
     logger.info(s"Étape demandée       : ${cfg.stage}")
-    logger.info(s"Seuil retard (min)   : ${cfg.thMinutes}")
     logger.info(s"MissingnessThreshold : ${cfg.missingnessThreshold}")
     logger.info(s"Months Flights       : ${cfg.monthsF.mkString(", ")}")
     logger.info(s"Months Weather       : ${cfg.monthsW.mkString(", ")}")
@@ -172,6 +170,7 @@ object AppConfig {
     // base passée en CLI (optionnelle)
     logger.info(s"Delta Base (CLI opt) : ${cfg.deltaBase.getOrElse("-")}")
     logger.info(s"Dataset (opt)        : ${cfg.ds.getOrElse("-")}")
+    logger.info(s"Th (opt)             : ${cfg.th.getOrElse("-")}")
     logger.info(s"OriginHours (opt)    : ${cfg.originHours.getOrElse("-")}")
     logger.info(s"DestHours (opt)      : ${cfg.destHours.getOrElse("-")}")
     logger.info(s"Tag (opt)            : ${cfg.tag.getOrElse("-")}")

@@ -88,7 +88,7 @@ object PathResolver {
       bronzeWeather = s"$bronzeBase/weather",
       silverFlights = s"$silverBase/flights",
       silverWeatherFiltered = s"$silverBase/weather_filtered",
-      goldJT = s"$goldBase/JT_th${cfg.thMinutes}"
+      goldJT = s"$goldBase/JT_th${cfg.th.getOrElse(60)}"
     )
   }
 }
