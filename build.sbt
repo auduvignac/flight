@@ -10,7 +10,7 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-mllib" % "3.5.1" % "provided",
 
   // Dépendance Delta intégrée dans ton assembly JAR
-  "io.delta" %% "delta-spark" % "3.2.1",
+  "io.delta" %% "delta-spark" % "3.1.0",
 
   // Configuration Typesafe (application.conf)
   "com.typesafe" % "config" % "1.4.3",
