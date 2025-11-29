@@ -17,7 +17,7 @@ ENV DATA_PATH=/app/data \
     MAIN_CLASS=com.emiasd.flight.Main \
     LOG_CONFIG_PATH=/opt/spark/conf/log4j2.properties \
     APPLICATION_CONFIG_PATH=/opt/config/application.conf \
-    SPARK_CONFIG_PATH=/opt/spark/conf/spark.conf \
+    SPARK_CONFIG_PATH=/opt/spark/conf/spark-submit.local.conf \
     SPARK_HOME=/opt/spark \
     PATH=$SPARK_HOME/bin:$PATH
 
@@ -36,7 +36,7 @@ COPY flight-assembly.jar /app/flight-assembly.jar
 # ============================================================
 # Copie des fichiers de configuration Spark
 # ============================================================
-COPY ./conf/spark.conf /opt/spark/conf/spark.conf
+COPY ./conf/spark-submit.local.conf /opt/spark/conf/spark-submit.local.conf
 COPY ./conf/log4j2-submit.properties /opt/spark/conf/log4j2.properties
 
 # ============================================================

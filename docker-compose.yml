@@ -3,7 +3,7 @@ x-env-common: &common-env
   APPLICATION_CONFIG_PATH: /opt/config/application.conf
   SPARK_MASTER_URL: spark://spark-master:7077
   SPARK_LOCAL_DIRS: /opt/spark/local
-  SPARK_CONF: /opt/spark/conf/spark.conf
+  SPARK_CONF: /opt/spark/conf/spark-submit.local.conf
 
 services:
   spark-master:
@@ -18,7 +18,7 @@ services:
       - ./data:/app/data
       - ./delta:/app/delta
       - ./spark-local:/opt/spark/local
-      - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
+      - ./conf/spark-submit.local.conf:/opt/spark/conf/spark-submit.local.conf:ro
       - ./conf/application.conf:/opt/config/application.conf:ro
       - ./conf/log4j2-submit.properties:/opt/spark/conf/log4j2.properties:ro
     ports:
@@ -37,7 +37,7 @@ services:
       - ./data:/app/data
       - ./delta:/app/delta
       - ./spark-local:/opt/spark/local
-      - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
+      - ./conf/spark-submit.local.conf:/opt/spark/conf/spark-submit.local.conf:ro
     depends_on:
       - spark-master
     restart: unless-stopped
@@ -53,7 +53,7 @@ services:
       - ./data:/app/data
       - ./delta:/app/delta
       - ./spark-local:/opt/spark/local
-      - ./conf/spark.conf:/opt/spark/conf/spark.conf:ro
+      - ./conf/spark-submit.local.conf:/opt/spark/conf/spark-submit.local.conf:ro
       - ./conf/application.conf:/opt/config/application.conf:ro
       - ./conf/log4j2-submit.properties:/opt/spark/conf/log4j2.properties:ro
       - ./spark-submit.sh:/app/spark-submit.sh:ro
