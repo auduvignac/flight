@@ -35,7 +35,7 @@ object BuildJT {
       .withColumn(targetColName, explode(col(targetsColName)))
       .drop(col(targetsColName))
 
-    // 2) Candidats météo dans la tolérance ±toleranceMin
+    // 2) Join météo ± tolérance
     val joined = fWithGrid.join(
       wxPrefixed,
       col(airportColInF) === col(s"${prefix}_airport_id") &&
@@ -46,9 +46,10 @@ object BuildJT {
       "left"
     )
 
-    // 3) Garder l'observation la plus proche pour chaque (vol, heure cible)
+    // 3) Sélectionner l'observation la plus proche
     val partCols: Seq[Column] =
       fBase.columns.map(col) :+ col(s"${prefix}_target")
+
     val w = Window
       .partitionBy(partCols: _*)
       .orderBy(
@@ -56,6 +57,7 @@ object BuildJT {
       )
 
     val pointCol = s"${prefix}_point"
+
     val best = joined
       .withColumn("rn", row_number().over(w))
       .filter(col("rn") === 1)
@@ -78,8 +80,9 @@ object BuildJT {
           ).as(pointCol)): _*
       )
 
-    // 4) Recomposer l'array trié (ts, ts-1h, ..., ts-12h)
+    // 4) Recomposer le tableau trié
     val outCol = if (prefix == "o") "Wo" else "Wd"
+
     best
       .groupBy(fBase.columns.map(col): _*)
       .agg(sort_array(collect_list(col(pointCol)), asc = false).as(outCol))
@@ -96,24 +99,22 @@ object BuildJT {
   }
 
   /**
-   * Pipeline commun vols/météo sans application du seuil. Optimisations pour un
-   * run unique : filtre temporel météo et pruning de colonnes.
+   * Pipeline commun vols/météo sans application du seuil.
    */
   def buildJTBase(
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
     toleranceMin: Int = 45
   ): DataFrame = {
+
+    // Préparation des bornes temporelles
     val fWithBounds = flightsEnriched
       .filter(col("dep_ts_utc").isNotNull && col("arr_ts_utc").isNotNull)
       .withColumn(
         "dep_minus_12h",
         col("dep_ts_utc") - expr("INTERVAL 12 HOURS")
       )
-      .withColumn(
-        "arr_plus_12h",
-        col("arr_ts_utc") + expr("INTERVAL 12 HOURS")
-      )
+      .withColumn("arr_plus_12h", col("arr_ts_utc") + expr("INTERVAL 12 HOURS"))
 
     val boundsOpt = fWithBounds
       .agg(
@@ -125,10 +126,7 @@ object BuildJT {
       .flatMap { row =>
         val minTs = Option(row.getAs[Timestamp]("min_ts"))
         val maxTs = Option(row.getAs[Timestamp]("max_ts"))
-        for {
-          min <- minTs
-          max <- maxTs
-        } yield (min, max)
+        for { min <- minTs; max <- maxTs } yield (min, max)
       }
 
     val f = fWithBounds
@@ -156,10 +154,11 @@ object BuildJT {
     }
       .getOrElse(weatherSlim)
 
-    // ========= OPTIMS MÉTÉO =========
+    // ========================================
+    //   OPTIMISATION CRITIQUE : partitionnement fin
+    // ========================================
     val wxBase = weatherPruned
-      .repartition(col("airport_id"))
-      .sortWithinPartitions(col("airport_id"), col("obs_utc"))
+      .repartitionByRange(200, col("airport_id"), col("obs_utc"))
       .persist(StorageLevel.MEMORY_AND_DISK)
 
     val wxOrigin = wxBase.select(
@@ -196,10 +195,9 @@ object BuildJT {
       col("HourlyPrecip")
     )
 
-    // Répartition pour limiter le shuffle
-    val fForO = f.repartition(col("origin_airport_id"))
+    // ========= VOL ORIGIN : repartitionByRange pour éliminer le skew =========
+    val fForO = f.repartitionByRange(200, col("origin_airport_id"))
 
-    // ========= ORIGINE : Wo (closest hourly) =========
     val withWo = hourlyArrayClosest(
       fForO,
       wxOrigin.withColumnRenamed("o_airport_id", "o_airport_id"),
@@ -209,9 +207,9 @@ object BuildJT {
       toleranceMin = toleranceMin
     )
 
-    val fForD = withWo.repartition(col("dest_airport_id"))
+    // ========= VOL DESTINATION =========
+    val fForD = withWo.repartitionByRange(200, col("dest_airport_id"))
 
-    // ========= DESTINATION : Wd (closest hourly) =========
     val withWd = hourlyArrayClosest(
       fForD,
       wxDest.withColumnRenamed("d_airport_id", "d_airport_id"),
@@ -227,8 +225,7 @@ object BuildJT {
   }
 
   /**
-   * Applique le seuil de retard et recompose la sortie finale (F/Wo/Wd/C).
-   * Séparé pour pouvoir réutiliser le résultat de buildJTBase sur plusieurs th.
+   * Applique le seuil et compose la sortie finale.
    */
   def attachLabel(jtBase: DataFrame, thMinutes: Int): DataFrame = {
     val withC = jtBase.withColumn(
