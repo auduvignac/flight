@@ -18,8 +18,6 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 import scopt.OParser
 
-import scala.util.{Failure, Success, Try}
-
 /**
  * Point d'entrée principal pour exécuter le pipeline ETL (Bronze → Silver →
  * Gold)
@@ -69,31 +67,13 @@ object Main {
       overwriteSchema = true
     )
 
-    // Analyses QA sur les jeux Bronze
-    val qaOutDirFile = new java.io.File("analysis")
-    val qaOutDir = Try {
-      if (!qaOutDirFile.exists()) {
-        if (qaOutDirFile.mkdirs())
-          logger.info(s"Répertoire créé : ${qaOutDirFile.getAbsolutePath}")
-        else
-          logger.warn(
-            s"Impossible de créer le répertoire : ${qaOutDirFile.getAbsolutePath}"
-          )
-      }
-      qaOutDirFile.getAbsolutePath
-    } match {
-      case Success(path) => path
-      case Failure(e) =>
-        logger.error(
-          s"Erreur lors de la création du répertoire ${qaOutDirFile.getAbsolutePath}",
-          e
-        )
-        throw e
-    }
+    // Analyses sur les jeux Bronze
+    val bronzeQaDir = s"${paths.analysisDir}/bronze"
+    Writers.mkdirSmart(spark, bronzeQaDir)(logger)
 
     logger.info("Analyse qualité Bronze : vols et météo")
-    BronzeAnalysis.analyzeFlights(flightsBronze, qaOutDir)
-    BronzeAnalysis.analyzeWeather(weatherBronze, qaOutDir)
+    BronzeAnalysis.analyzeFlights(flightsBronze, bronzeQaDir)
+    BronzeAnalysis.analyzeWeather(weatherBronze, bronzeQaDir)
 
     logger.info("Étape Bronze terminée avec succès.")
   }
@@ -144,26 +124,8 @@ object Main {
     )
 
     // Analyse QA Silver
-    val silverQaDirFile = new java.io.File("analysis/silver")
-    val silverQaDir = Try {
-      if (!silverQaDirFile.exists()) {
-        if (silverQaDirFile.mkdirs())
-          logger.info(s"Répertoire créé : ${silverQaDirFile.getAbsolutePath}")
-        else
-          logger.warn(
-            s"Impossible de créer le répertoire : ${silverQaDirFile.getAbsolutePath}"
-          )
-      }
-      silverQaDirFile.getAbsolutePath
-    } match {
-      case Success(path) => path
-      case Failure(e) =>
-        logger.error(
-          s"Erreur lors de la création du répertoire ${silverQaDirFile.getAbsolutePath}",
-          e
-        )
-        throw e
-    }
+    val silverQaDir = s"${paths.analysisDir}/silver"
+    Writers.mkdirSmart(spark, silverQaDir)(logger)
 
     logger.info("Analyse qualité Silver : vols nettoyés")
     val flightsSilverCheck = Readers.readDelta(spark, paths.silverFlights)
@@ -222,81 +184,106 @@ object Main {
     logger.info("Enrichissement des vols (FlightsEnriched)")
     val flightsEnriched = FlightsEnriched.build(flightsPrepared)
 
-    // Jointure météo-vols
-    logger.info("Construction de la jointure spatio-temporelle (BuildJT)")
-    val jtOut = BuildJT.buildJT(flightsEnriched, weatherSlimDF, cfg.thMinutes)
+    // Déterminer les seuils à traiter
+    val thresholds = cfg.th match {
+      case Some(th) => Seq(th)
+      case None     => Seq(15, 30, 45, 60, 90)
+    }
 
-    // Écriture du résultat Gold
-    logger.info("Écriture de la table GOLD (Joint Table)")
-    Writers.writeDelta(
-      jtOut,
-      paths.goldJT,
-      Seq("year", "month"),
-      overwriteSchema = true
-    )
+    logger.info(s"Traitement des seuils : ${thresholds.mkString(", ")}")
 
-    logger.info(s"Table GOLD écrite : ${paths.goldJT}")
+    // Calculer la base Gold (sans le suffixe JT_th...)
+    val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
 
-    // Sanity checks de base
-    import spark.implicits._
-    val jtCheck = Readers.readDelta(spark, paths.goldJT)
+    // Traiter chaque seuil
+    thresholds.foreach { thMinutes =>
+      logger.info(s"=== Traitement du seuil th=$thMinutes ===")
 
-    logger.info(s"JT rows = ${jtCheck.count}")
-    logger.info(
-      s"JT distinct flight_key = ${jtCheck.select($"F.flight_key").distinct.count}"
-    )
-
-    jtCheck
-      .agg(
-        sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0)).as("null_dep"),
-        sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0)).as("null_arr"),
-        count(lit(1)).as("total")
+      // Jointure météo-vols pour ce seuil
+      logger.info(
+        s"Construction de la jointure spatio-temporelle (BuildJT) pour th=$thMinutes"
       )
-      .show(false)
+      val jtOut = BuildJT.buildJT(flightsEnriched, weatherSlimDF, thMinutes)
 
-    // Part des vols avec observations météo Wo / Wd
-    val withFlags = jtCheck
-      .withColumn("hasWo", size($"Wo") > 0)
-      .withColumn("hasWd", size($"Wd") > 0)
+      // Chemin de sortie spécifique à ce seuil
+      val goldJTPath = s"$goldBase/JT_th$thMinutes"
 
-    withFlags
-      .agg(
-        avg(when($"hasWo", lit(1)).otherwise(lit(0))).as("pct_with_Wo"),
-        avg(when($"hasWd", lit(1)).otherwise(lit(0))).as("pct_with_Wd")
+      // Écriture du résultat Gold
+      logger.info(s"Écriture de la table GOLD (Joint Table) pour th=$thMinutes")
+      Writers.writeDelta(
+        jtOut,
+        goldJTPath,
+        Seq("year", "month"),
+        overwriteSchema = true
       )
-      .show(false)
 
-    // Aperçu visuel (top 10)
-    jtCheck
-      .select(
-        $"F.carrier",
-        $"F.flnum",
-        $"F.date",
-        $"F.origin_airport_id",
-        $"F.dest_airport_id",
-        $"C",
-        size($"Wo").as("nWo"),
-        size($"Wd").as("nWd")
+      logger.info(s"Table GOLD écrite : $goldJTPath")
+
+      // Sanity checks de base
+      import spark.implicits._
+      val jtCheck = Readers.readDelta(spark, goldJTPath)
+
+      logger.info(s"JT rows (th=$thMinutes) = ${jtCheck.count}")
+      logger.info(
+        s"JT distinct flight_key (th=$thMinutes) = ${jtCheck.select($"F.flight_key").distinct.count}"
       )
-      .orderBy(desc("nWo"))
-      .show(10, false)
 
-    // === Analyse τ pour D1 ===
+      jtCheck
+        .agg(
+          sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0)).as("null_dep"),
+          sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0)).as("null_arr"),
+          count(lit(1)).as("total")
+        )
+        .show(false)
 
-    jtCheck
-      .select(
-        col("F.arr_delay_new"),
-        col("F.weather_delay"),
-        col("F.nas_delay"),
-        col("F.nas_weather_delay")
-      )
-      .show(5, truncate = false)
+      // Part des vols avec observations météo Wo / Wd
+      val withFlags = jtCheck
+        .withColumn("hasWo", size($"Wo") > 0)
+        .withColumn("hasWd", size($"Wd") > 0)
+
+      withFlags
+        .agg(
+          avg(when($"hasWo", lit(1)).otherwise(lit(0))).as("pct_with_Wo"),
+          avg(when($"hasWd", lit(1)).otherwise(lit(0))).as("pct_with_Wd")
+        )
+        .show(false)
+
+      // Aperçu visuel (top 10)
+      jtCheck
+        .select(
+          $"F.carrier",
+          $"F.flnum",
+          $"F.date",
+          $"F.origin_airport_id",
+          $"F.dest_airport_id",
+          $"C",
+          size($"Wo").as("nWo"),
+          size($"Wd").as("nWd")
+        )
+        .orderBy(desc("nWo"))
+        .show(10, false)
+
+      // === Analyse τ pour D1 ===
+      jtCheck
+        .select(
+          col("F.arr_delay_new"),
+          col("F.weather_delay"),
+          col("F.nas_delay"),
+          col("F.nas_weather_delay")
+        )
+        .show(5, truncate = false)
+    }
 
     // === Génération D1..D4 x Th via batch unique ===
+    logger.info("=== Génération des targets pour tous les seuils ===")
 
-    val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
-    val tau      = 0.95
-    val ths      = Seq(15, 30, 45, 60, 90)
+    val tau = 0.95
+    // Utiliser les mêmes seuils que ceux traités (pas hardcodé)
+    val ths = thresholds
+
+    // Utiliser la première table JT pour générer les targets
+    val firstJTPath = s"$goldBase/JT_th${ths.head}"
+    val jtCheck     = Readers.readDelta(spark, firstJTPath)
 
     // 1) Clés équilibrées pour tous les jeux (léger)
     val keysAll =
@@ -343,11 +330,12 @@ object Main {
     logger.info("Étape Gold terminée avec succès.")
 
     val targetsPath = outRoot
+    // Utiliser le premier seuil traité pour l'inspection
     TargetsInspection.inspectSlice(
       spark,
       targetsPath,
       dsValue = "D2",
-      thValue = 60,
+      thValue = ths.head,
       n = 20
     )
   }
@@ -378,7 +366,7 @@ object Main {
 
     // Extraction des paramètres pour les diagnostics
     val ds          = cfg.ds.getOrElse("D2")
-    val th          = cfg.thMinutes
+    val th          = cfg.th.getOrElse(60)
     val originHours = cfg.originHours.getOrElse(7)
     val destHours   = cfg.destHours.getOrElse(7)
 
@@ -440,29 +428,30 @@ object Main {
     // =======================
     // Liste des expériences
     // =======================
+    val defaultTh = cfg.th.getOrElse(60)
     val experiments: Seq[ExperimentConfig] = Seq(
       // === Baseline (aucune météo)
-      ExperimentConfig("D2", cfg.thMinutes, 0, 0, "Baseline_D2_th60_noWeather"),
+      ExperimentConfig("D2", defaultTh, 0, 0, "Baseline_D2_th60_noWeather"),
 
       // === Étude 1 : impact du nombre d'heures météo ===
       // Origine seule
-      ExperimentConfig("D2", cfg.thMinutes, 1, 0, "S1_origin_1h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 3, 0, "S1_origin_3h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 5, 0, "S1_origin_5h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 7, 0, "S1_origin_7h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 9, 0, "S1_origin_9h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 11, 0, "S1_origin_11h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 1, 0, "S1_origin_1h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 3, 0, "S1_origin_3h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 5, 0, "S1_origin_5h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 7, 0, "S1_origin_7h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 9, 0, "S1_origin_9h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 11, 0, "S1_origin_11h_D2_th60"),
 
       // Destination seule
-      ExperimentConfig("D2", cfg.thMinutes, 0, 1, "S1_dest_1h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 0, 3, "S1_dest_3h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 0, 5, "S1_dest_5h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 0, 7, "S1_dest_7h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 0, 9, "S1_dest_9h_D2_th60"),
-      ExperimentConfig("D2", cfg.thMinutes, 0, 11, "S1_dest_11h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 0, 1, "S1_dest_1h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 0, 3, "S1_dest_3h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 0, 5, "S1_dest_5h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 0, 7, "S1_dest_7h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 0, 9, "S1_dest_9h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 0, 11, "S1_dest_11h_D2_th60"),
 
       // Origine + destination
-      ExperimentConfig("D2", cfg.thMinutes, 7, 7, "S1_origin7h_dest7h_D2_th60"),
+      ExperimentConfig("D2", defaultTh, 7, 7, "S1_origin7h_dest7h_D2_th60"),
 
       // === Étude 2 : variation du seuil th ===
       ExperimentConfig("D2", 15, 7, 7, "S2_D2_th15_origin7h_dest7h"),
@@ -472,9 +461,9 @@ object Main {
       ExperimentConfig("D2", 90, 7, 7, "S2_D2_th90_origin7h_dest7h"),
 
       // === Étude 3 : variation du dataset ===
-      ExperimentConfig("D1", cfg.thMinutes, 7, 7, "S3_D1_th60_origin7h_dest7h"),
-      ExperimentConfig("D3", cfg.thMinutes, 7, 7, "S3_D3_th60_origin7h_dest7h"),
-      ExperimentConfig("D4", cfg.thMinutes, 7, 7, "S3_D4_th60_origin7h_dest7h")
+      ExperimentConfig("D1", defaultTh, 7, 7, "S3_D1_th60_origin7h_dest7h"),
+      ExperimentConfig("D3", defaultTh, 7, 7, "S3_D3_th60_origin7h_dest7h"),
+      ExperimentConfig("D4", defaultTh, 7, 7, "S3_D4_th60_origin7h_dest7h")
     )
 
     // =======================
@@ -510,10 +499,9 @@ object Main {
     // =======================
     // Exécution conditionnelle des expériences
     // =======================
-    (cfg.ds, cfg.originHours, cfg.destHours, cfg.tag) match {
+    (cfg.ds, cfg.th, cfg.originHours, cfg.destHours, cfg.tag) match {
       // Cas 1 : un scénario spécifique a été passé en argument CLI
-      case (Some(ds), Some(origin), Some(dest), Some(tag)) =>
-        val th        = cfg.thMinutes
+      case (Some(ds), Some(th), Some(origin), Some(dest), Some(tag)) =>
         val singleExp = ExperimentConfig(ds, th, origin, dest, tag)
         logger.info(s"Exécution ciblée d'une seule expérience : $singleExp")
         runOneExperiment(singleExp)
@@ -580,6 +568,9 @@ object Main {
             .text("Mapping HDFS"),
 
           // OUTPUTS LOCAL
+          opt[String]("analysisDir")
+            .action((x, c) => c.copy(analysisDir = x))
+            .text("Répertoire local Analysis"),
           opt[String]("deltaBronzeBase")
             .action((x, c) => c.copy(deltaBronzeBase = x))
             .text("Répertoire local Delta Bronze"),
@@ -591,6 +582,9 @@ object Main {
             .text("Répertoire local Delta Gold"),
 
           // OUTPUTS HDFS
+          opt[String]("hanalysisDir")
+            .action((x, c) => c.copy(hanalysisDir = x))
+            .text("Répertoire HDFS Analysis"),
           opt[String]("hDeltaBronzeBase")
             .action((x, c) => c.copy(hDeltaBronzeBase = x))
             .text("Répertoire HDFS Delta Bronze"),
@@ -611,8 +605,8 @@ object Main {
             .action((x, c) => c.copy(monthsW = x))
             .text("Liste des mois météo (ex: 01,02,03)"),
           opt[Int]("th")
-            .action((x, c) => c.copy(thMinutes = x))
-            .text("Seuil de retard en minutes"),
+            .action((x, c) => c.copy(th = Some(x)))
+            .text("Seuil de retard en minutes (optionnel)"),
           opt[Double]("missingnessThreshold")
             .action((x, c) => c.copy(missingnessThreshold = x))
             .text("Seuil de valeurs manquantes (0–1)"),

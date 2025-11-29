@@ -21,11 +21,13 @@ final case class AppConfig(
   hInMapping: String,
 
   // === Outputs (Local) ===
+  analysisDir: String,
   deltaBronzeBase: String,
   deltaSilverBase: String,
   deltaGoldBase: String,
 
   // === Outputs (Hadoop) ===
+  hanalysisDir: String,
   hDeltaBronzeBase: String,
   hDeltaSilverBase: String,
   hDeltaGoldBase: String,
@@ -33,7 +35,6 @@ final case class AppConfig(
   // === Processing params ===
   monthsF: Seq[String],
   monthsW: Seq[String],
-  thMinutes: Int,
   missingnessThreshold: Double,
 
   // === Spark ===
@@ -46,6 +47,7 @@ final case class AppConfig(
   // === Exécution / Modélisation ===
   stage: String = "all",
   ds: Option[String] = None,
+  th: Option[Int] = None,
   originHours: Option[Int] = None,
   destHours: Option[Int] = None,
   tag: Option[String] = None
@@ -124,10 +126,12 @@ object AppConfig {
       hInWeatherDir = app.getConfig("hadoop").getString("input.weather.dir"),
       hInMapping = app.getConfig("hadoop").getString("input.mapping"),
       // Local outputs
+      analysisDir = app.getString("output.analysis.dir"),
       deltaBronzeBase = app.getString("output.delta.base.bronze"),
       deltaSilverBase = app.getString("output.delta.base.silver"),
       deltaGoldBase = app.getString("output.delta.base.gold"),
       // Hadoop outputs
+      hanalysisDir = app.getConfig("hadoop").getString("output.analysis"),
       hDeltaBronzeBase =
         app.getConfig("hadoop").getString("output.delta.base.bronze"),
       hDeltaSilverBase =
@@ -137,7 +141,6 @@ object AppConfig {
       // Params
       monthsF = getSeq(app, "input.months_f"),
       monthsW = getSeq(app, "input.months_w"),
-      thMinutes = app.getConfig("params").getInt("thMinutes"),
       missingnessThreshold =
         app.getConfig("params").getDouble("missingness.threshold"),
       // Spark
@@ -154,19 +157,20 @@ object AppConfig {
     logger.info("========== Configuration Active ==========")
     logger.info(s"Environnement        : ${cfg.env}")
     logger.info(s"Étape demandée       : ${cfg.stage}")
-    logger.info(s"Seuil retard (min)   : ${cfg.thMinutes}")
     logger.info(s"MissingnessThreshold : ${cfg.missingnessThreshold}")
     logger.info(s"Months Flights       : ${cfg.monthsF.mkString(", ")}")
     logger.info(s"Months Weather       : ${cfg.monthsW.mkString(", ")}")
     logger.info(s"Spark Master         : ${cfg.sparkMaster}")
     logger.info(s"Spark App Name       : ${cfg.sparkAppName}")
     // bases déclarées dans le conf
+    logger.info(s"Analysis Directory   : ${cfg.analysisDir}")
     logger.info(s"Delta Bronze Base    : ${cfg.deltaBronzeBase}")
     logger.info(s"Delta Silver Base    : ${cfg.deltaSilverBase}")
     logger.info(s"Delta Gold Base      : ${cfg.deltaGoldBase}")
     // base passée en CLI (optionnelle)
     logger.info(s"Delta Base (CLI opt) : ${cfg.deltaBase.getOrElse("-")}")
     logger.info(s"Dataset (opt)        : ${cfg.ds.getOrElse("-")}")
+    logger.info(s"Th (opt)             : ${cfg.th.getOrElse("-")}")
     logger.info(s"OriginHours (opt)    : ${cfg.originHours.getOrElse("-")}")
     logger.info(s"DestHours (opt)      : ${cfg.destHours.getOrElse("-")}")
     logger.info(s"Tag (opt)            : ${cfg.tag.getOrElse("-")}")

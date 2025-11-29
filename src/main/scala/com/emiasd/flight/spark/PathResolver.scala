@@ -7,6 +7,7 @@ final case class IOPaths(
   flightsInputs: Seq[String],
   weatherInputs: Seq[String],
   mapping: String,
+  analysisDir: String,
   bronzeFlights: String,
   bronzeWeather: String,
   silverFlights: String,
@@ -25,9 +26,9 @@ object PathResolver {
     path.stripSuffix(suffix).stripSuffix(suffix + "/")
 
   /**
-   * Retourne la base Delta "effective" :
-   *   - si deltaBase est définie → utilisable directement
-   *   - sinon → dérivée de la base gold (env local ou Hadoop)
+   * Retourne la base Delta "effective" : - si deltaBase est définie →
+   * utilisable directement - sinon → dérivée de la base gold (env local ou
+   * Hadoop)
    */
   private def computeEffectiveDeltaBase(cfg: AppConfig): String =
     cfg.deltaBase.getOrElse {
@@ -48,6 +49,13 @@ object PathResolver {
         (cfg.inFlightsDir, cfg.inWeatherDir, cfg.inMapping)
       case Environment.Hadoop =>
         (cfg.hInFlightsDir, cfg.hInWeatherDir, cfg.hInMapping)
+    }
+
+  /** Retourne le chemin d'analyse QA selon l'environnement. */
+  private def analysisPath(cfg: AppConfig): String =
+    cfg.env match {
+      case Environment.Hadoop => cfg.hanalysisDir // Chemin HDFS/Cluster
+      case _                  => cfg.analysisDir  // Chemin local/Docker
     }
 
   // --- Main resolve -------------------------------------------------------
@@ -75,11 +83,12 @@ object PathResolver {
       flightsInputs = flightsInputs,
       weatherInputs = weatherInputs,
       mapping = mapping,
+      analysisDir = analysisPath(cfg),
       bronzeFlights = s"$bronzeBase/flights",
       bronzeWeather = s"$bronzeBase/weather",
       silverFlights = s"$silverBase/flights",
       silverWeatherFiltered = s"$silverBase/weather_filtered",
-      goldJT = s"$goldBase/JT_th${cfg.thMinutes}"
+      goldJT = s"$goldBase/JT_th${cfg.th.getOrElse(60)}"
     )
   }
 }
