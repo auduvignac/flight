@@ -14,10 +14,14 @@ import com.emiasd.flight.silver.{CleaningPlans, WeatherSlim}
 import com.emiasd.flight.spark.{IOPaths, PathResolver}
 import com.emiasd.flight.targets.TargetBatch
 import org.apache.log4j.Logger
+import org.apache.spark.scheduler.{SparkListener, SparkListenerStageCompleted, SparkListenerStageSubmitted, SparkListenerTaskEnd}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
 import org.apache.spark.storage.StorageLevel
 import scopt.OParser
+
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Point d'entrée principal pour exécuter le pipeline ETL (Bronze → Silver →
@@ -29,6 +33,7 @@ object Main {
   // Logger
   // =======================
   val logger: Logger = Logger.getLogger(getClass.getName)
+  private val sparkListenerRegistered = new java.util.concurrent.atomic.AtomicBoolean(false)
 
   // =======================
   // Étape 1 : BRONZE
@@ -53,16 +58,22 @@ object Main {
     val weatherBronze =
       WeatherBronze.readAndEnrich(spark, paths.weatherInputs)
 
+    // Préparation des repartitions alignées sur (year, month) pour éviter les sur-coalesce
+    val flightsBronzeForWrite =
+      flightsBronze.repartition(col("year"), col("month"))
+    val weatherBronzeForWrite =
+      weatherBronze.repartition(col("year"), col("month"))
+
     // Écriture en Delta Lake
     logger.info("Écriture des tables BRONZE en Delta Lake")
     Writers.writeDelta(
-      flightsBronze.coalesce(2),
+      flightsBronzeForWrite,
       paths.bronzeFlights,
       Seq("year", "month"),
       overwriteSchema = true
     )
     Writers.writeDelta(
-      weatherBronze.coalesce(2),
+      weatherBronzeForWrite,
       paths.bronzeWeather,
       Seq("year", "month"),
       overwriteSchema = true
@@ -710,12 +721,17 @@ object Main {
 
       b.getOrCreate()
     }
+    registerSparkProgressLogger(spark)
 
     val paths = PathResolver.resolve(cfg)
+    val conf  = spark.sparkContext.getConf
 
     logger.info(s"[Paths] bronzeFlights=${paths.bronzeFlights}")
     logger.info(s"[Paths] silverFlights=${paths.silverFlights}")
     logger.info(s"[Paths] goldJT=${paths.goldJT}")
+    conf.getAll.sorted.foreach { case (k, v) =>
+      logger.info(s"[SparkConfig] $k = $v")
+    }
 
     cfg.stage.toLowerCase match {
       case "bronze"      => runBronze(spark, paths)
@@ -737,5 +753,50 @@ object Main {
 
     spark.stop()
     logger.info("Application terminée avec succès.")
+  }
+
+  private def registerSparkProgressLogger(spark: SparkSession): Unit = {
+    if (sparkListenerRegistered.compareAndSet(false, true)) {
+      val stageMeta     = new ConcurrentHashMap[Int, (String, Int)]()
+      val stageCounters = new ConcurrentHashMap[Int, AtomicInteger]()
+
+    spark.sparkContext.addSparkListener(new SparkListener {
+      override def onStageSubmitted(
+        stageSubmitted: SparkListenerStageSubmitted
+      ): Unit = {
+        val info = stageSubmitted.stageInfo
+        stageMeta.put(info.stageId, (info.name, info.numTasks))
+        stageCounters.put(info.stageId, new AtomicInteger(0))
+        logger.info(
+          s"[SparkStage] Stage ${info.stageId} '${info.name}' started with ${info.numTasks} tasks"
+        )
+      }
+
+      override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit =
+        Option(stageCounters.get(taskEnd.stageId)).foreach { counter =>
+          val done  = counter.incrementAndGet()
+          val total = stageMeta.getOrDefault(taskEnd.stageId, ("?", -1))._2
+          logger.info(
+            s"[SparkStage] Stage ${taskEnd.stageId} progress: $done/$total tasks — " +
+              s"partition ${taskEnd.taskInfo.index} finished on ${taskEnd.taskInfo.host} in ${taskEnd.taskInfo.duration} ms"
+          )
+        }
+
+      override def onStageCompleted(
+        stageCompleted: SparkListenerStageCompleted
+      ): Unit = {
+        val info = stageCompleted.stageInfo
+        val durationMs = (for {
+          start <- info.submissionTime
+          end   <- info.completionTime
+        } yield end - start).getOrElse(-1L)
+        logger.info(
+          s"[SparkStage] Stage ${info.stageId} '${info.name}' completed in ${durationMs} ms"
+        )
+        stageCounters.remove(info.stageId)
+        stageMeta.remove(info.stageId)
+      }
+    })
+    }
   }
 }
