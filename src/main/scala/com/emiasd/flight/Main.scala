@@ -33,7 +33,8 @@ object Main {
   // Logger
   // =======================
   val logger: Logger = Logger.getLogger(getClass.getName)
-  private val sparkListenerRegistered = new java.util.concurrent.atomic.AtomicBoolean(false)
+  private val sparkListenerRegistered =
+    new java.util.concurrent.atomic.AtomicBoolean(false)
 
   // =======================
   // Étape 1 : BRONZE
@@ -755,48 +756,47 @@ object Main {
     logger.info("Application terminée avec succès.")
   }
 
-  private def registerSparkProgressLogger(spark: SparkSession): Unit = {
+  private def registerSparkProgressLogger(spark: SparkSession): Unit =
     if (sparkListenerRegistered.compareAndSet(false, true)) {
       val stageMeta     = new ConcurrentHashMap[Int, (String, Int)]()
       val stageCounters = new ConcurrentHashMap[Int, AtomicInteger]()
 
-    spark.sparkContext.addSparkListener(new SparkListener {
-      override def onStageSubmitted(
-        stageSubmitted: SparkListenerStageSubmitted
-      ): Unit = {
-        val info = stageSubmitted.stageInfo
-        stageMeta.put(info.stageId, (info.name, info.numTasks))
-        stageCounters.put(info.stageId, new AtomicInteger(0))
-        logger.info(
-          s"[SparkStage] Stage ${info.stageId} '${info.name}' started with ${info.numTasks} tasks"
-        )
-      }
-
-      override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit =
-        Option(stageCounters.get(taskEnd.stageId)).foreach { counter =>
-          val done  = counter.incrementAndGet()
-          val total = stageMeta.getOrDefault(taskEnd.stageId, ("?", -1))._2
+      spark.sparkContext.addSparkListener(new SparkListener {
+        override def onStageSubmitted(
+          stageSubmitted: SparkListenerStageSubmitted
+        ): Unit = {
+          val info = stageSubmitted.stageInfo
+          stageMeta.put(info.stageId, (info.name, info.numTasks))
+          stageCounters.put(info.stageId, new AtomicInteger(0))
           logger.info(
-            s"[SparkStage] Stage ${taskEnd.stageId} progress: $done/$total tasks — " +
-              s"partition ${taskEnd.taskInfo.index} finished on ${taskEnd.taskInfo.host} in ${taskEnd.taskInfo.duration} ms"
+            s"[SparkStage] Stage ${info.stageId} '${info.name}' started with ${info.numTasks} tasks"
           )
         }
 
-      override def onStageCompleted(
-        stageCompleted: SparkListenerStageCompleted
-      ): Unit = {
-        val info = stageCompleted.stageInfo
-        val durationMs = (for {
-          start <- info.submissionTime
-          end   <- info.completionTime
-        } yield end - start).getOrElse(-1L)
-        logger.info(
-          s"[SparkStage] Stage ${info.stageId} '${info.name}' completed in ${durationMs} ms"
-        )
-        stageCounters.remove(info.stageId)
-        stageMeta.remove(info.stageId)
-      }
-    })
+        override def onTaskEnd(taskEnd: SparkListenerTaskEnd): Unit =
+          Option(stageCounters.get(taskEnd.stageId)).foreach { counter =>
+            val done  = counter.incrementAndGet()
+            val total = stageMeta.getOrDefault(taskEnd.stageId, ("?", -1))._2
+            logger.info(
+              s"[SparkStage] Stage ${taskEnd.stageId} progress: $done/$total tasks — " +
+                s"partition ${taskEnd.taskInfo.index} finished on ${taskEnd.taskInfo.host} in ${taskEnd.taskInfo.duration} ms"
+            )
+          }
+
+        override def onStageCompleted(
+          stageCompleted: SparkListenerStageCompleted
+        ): Unit = {
+          val info = stageCompleted.stageInfo
+          val durationMs = (for {
+            start <- info.submissionTime
+            end   <- info.completionTime
+          } yield end - start).getOrElse(-1L)
+          logger.info(
+            s"[SparkStage] Stage ${info.stageId} '${info.name}' completed in ${durationMs} ms"
+          )
+          stageCounters.remove(info.stageId)
+          stageMeta.remove(info.stageId)
+        }
+      })
     }
-  }
 }
