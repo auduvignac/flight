@@ -16,6 +16,7 @@ import com.emiasd.flight.targets.TargetBatch
 import org.apache.log4j.Logger
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
+import org.apache.spark.storage.StorageLevel
 import scopt.OParser
 
 /**
@@ -195,6 +196,13 @@ object Main {
     // Calculer la base Gold (sans le suffixe JT_th...)
     val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
 
+    // Jointure vols/météo calculée une seule fois, cache si plusieurs seuils
+    val jtBase = BuildJT.buildJTBase(flightsEnriched, weatherSlimDF)
+    val jtBaseCached =
+      if (thresholds.size > 1)
+        jtBase.persist(StorageLevel.MEMORY_AND_DISK)
+      else jtBase
+
     // Traiter chaque seuil
     thresholds.foreach { thMinutes =>
       logger.info(s"=== Traitement du seuil th=$thMinutes ===")
@@ -203,15 +211,25 @@ object Main {
       logger.info(
         s"Construction de la jointure spatio-temporelle (BuildJT) pour th=$thMinutes"
       )
-      val jtOut = BuildJT.buildJT(flightsEnriched, weatherSlimDF, thMinutes)
+      val jtOut = BuildJT.attachLabel(jtBaseCached, thMinutes)
 
       // Chemin de sortie spécifique à ce seuil
       val goldJTPath = s"$goldBase/JT_th$thMinutes"
 
+      val jtOutForWrite =
+        if (thresholds.size == 1)
+          jtOut.coalesce(
+            spark.conf
+              .getOption("flight.gold.single.coalesce")
+              .map(_.toInt)
+              .getOrElse(8)
+          )
+        else jtOut
+
       // Écriture du résultat Gold
       logger.info(s"Écriture de la table GOLD (Joint Table) pour th=$thMinutes")
       Writers.writeDelta(
-        jtOut,
+        jtOutForWrite,
         goldJTPath,
         Seq("year", "month"),
         overwriteSchema = true
@@ -273,6 +291,8 @@ object Main {
         )
         .show(5, truncate = false)
     }
+
+    if (thresholds.size > 1) jtBaseCached.unpersist()
 
     // === Génération D1..D4 x Th via batch unique ===
     logger.info("=== Génération des targets pour tous les seuils ===")

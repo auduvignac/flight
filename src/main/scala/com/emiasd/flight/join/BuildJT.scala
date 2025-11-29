@@ -6,6 +6,8 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{Column, DataFrame}
 import org.apache.spark.storage.StorageLevel
 
+import java.sql.Timestamp
+
 object BuildJT {
 
   private def hourlyArrayClosest(
@@ -89,9 +91,73 @@ object BuildJT {
     thMinutes: Int,
     toleranceMin: Int = 45
   ): DataFrame = {
+    val base = buildJTBase(flightsEnriched, weatherSlim, toleranceMin)
+    attachLabel(base, thMinutes)
+  }
+
+  /**
+   * Pipeline commun vols/météo sans application du seuil. Optimisations pour un
+   * run unique : filtre temporel météo et pruning de colonnes.
+   */
+  def buildJTBase(
+    flightsEnriched: DataFrame,
+    weatherSlim: DataFrame,
+    toleranceMin: Int = 45
+  ): DataFrame = {
+    val fWithBounds = flightsEnriched
+      .filter(col("dep_ts_utc").isNotNull && col("arr_ts_utc").isNotNull)
+      .withColumn(
+        "dep_minus_12h",
+        col("dep_ts_utc") - expr("INTERVAL 12 HOURS")
+      )
+      .withColumn(
+        "arr_plus_12h",
+        col("arr_ts_utc") + expr("INTERVAL 12 HOURS")
+      )
+
+    val boundsOpt = fWithBounds
+      .agg(
+        min(col("dep_minus_12h")).as("min_ts"),
+        max(col("arr_plus_12h")).as("max_ts")
+      )
+      .collect()
+      .headOption
+      .flatMap { row =>
+        val minTs = Option(row.getAs[Timestamp]("min_ts"))
+        val maxTs = Option(row.getAs[Timestamp]("max_ts"))
+        for {
+          min <- minTs
+          max <- maxTs
+        } yield (min, max)
+      }
+
+    val f = fWithBounds
+      .drop("dep_minus_12h", "arr_plus_12h")
+      .select(
+        col("origin_airport_id"),
+        col("dest_airport_id"),
+        col("dep_ts_utc"),
+        col("arr_ts_utc"),
+        col("ARR_DELAY_NEW"),
+        col("WEATHER_DELAY"),
+        col("NAS_DELAY"),
+        col("NAS_WEATHER_DELAY"),
+        col("OP_CARRIER_AIRLINE_ID"),
+        col("FL_NUM"),
+        col("FL_DATE"),
+        col("CRS_DEP_TIME"),
+        col("flight_key"),
+        col("year"),
+        col("month")
+      )
+
+    val weatherPruned = boundsOpt.map { case (minTs, maxTs) =>
+      weatherSlim.filter(col("obs_utc").between(lit(minTs), lit(maxTs)))
+    }
+      .getOrElse(weatherSlim)
 
     // ========= OPTIMS MÉTÉO =========
-    val wxBase = weatherSlim
+    val wxBase = weatherPruned
       .repartition(col("airport_id"))
       .sortWithinPartitions(col("airport_id"), col("obs_utc"))
       .persist(StorageLevel.MEMORY_AND_DISK)
@@ -130,20 +196,8 @@ object BuildJT {
       col("HourlyPrecip")
     )
 
-    // ========= PRÉPARATION VOLS =========
-    val f0 = flightsEnriched
-      .filter(col("dep_ts_utc").isNotNull && col("arr_ts_utc").isNotNull)
-      .withColumn(
-        "dep_minus_12h",
-        col("dep_ts_utc") - expr("INTERVAL 12 HOURS")
-      )
-      .withColumn(
-        "arr_minus_12h",
-        col("arr_ts_utc") - expr("INTERVAL 12 HOURS")
-      )
-
     // Répartition pour limiter le shuffle
-    val fForO = f0.repartition(col("origin_airport_id"))
+    val fForO = f.repartition(col("origin_airport_id"))
 
     // ========= ORIGINE : Wo (closest hourly) =========
     val withWo = hourlyArrayClosest(
@@ -169,14 +223,20 @@ object BuildJT {
 
     wxBase.unpersist()
 
-    // ========= ÉTIQUETTE C =========
-    val withC = withWd.withColumn(
+    withWd
+  }
+
+  /**
+   * Applique le seuil de retard et recompose la sortie finale (F/Wo/Wd/C).
+   * Séparé pour pouvoir réutiliser le résultat de buildJTBase sur plusieurs th.
+   */
+  def attachLabel(jtBase: DataFrame, thMinutes: Int): DataFrame = {
+    val withC = jtBase.withColumn(
       "C",
       when(col("ARR_DELAY_NEW") >= lit(thMinutes), lit(1)).otherwise(lit(0))
     )
 
-    // ========= STRUCT F =========
-    val withF = withC.select(
+    withC.select(
       struct(
         col("OP_CARRIER_AIRLINE_ID").as("carrier"),
         col("FL_NUM").as("flnum"),
@@ -198,7 +258,5 @@ object BuildJT {
       col("year"),
       col("month")
     )
-
-    withF
   }
 }
