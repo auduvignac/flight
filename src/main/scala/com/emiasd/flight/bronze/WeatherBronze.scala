@@ -8,7 +8,11 @@ import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object WeatherBronze {
-  def readAndEnrich(spark: SparkSession, inputs: Seq[String]): DataFrame = {
+  def readAndEnrich(
+    spark: SparkSession,
+    inputs: Seq[String],
+    debug: Boolean
+  ): DataFrame = {
 
     val logger = Logger.getLogger(getClass.getName)
 
@@ -17,9 +21,10 @@ object WeatherBronze {
     val raw =
       Readers.readTxt(spark, inputs, sep = ",", header = true, infer = true)
 
-    // Debug: log sample of Date and Time columns to identify format
-    logger.info("Sample Date/Time values from CSV:")
-    raw.select(col("Date"), col("Time")).show(5, truncate = false)
+    if (debug) {
+      logger.info("Mode debug activé — Sample Date/Time:")
+      raw.select(col("Date"), col("Time")).show(5, truncate = false)
+    }
 
     val df = raw
       .select(weatherKeep.map(c => col(c)): _*)

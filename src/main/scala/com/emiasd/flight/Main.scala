@@ -61,7 +61,7 @@ object Main {
     // Lecture et enrichissement météo
     logger.info("Lecture et enrichissement météo (WeatherBronze)")
     val weatherBronze =
-      WeatherBronze.readAndEnrich(spark, paths.weatherInputs)
+      WeatherBronze.readAndEnrich(spark, paths.weatherInputs, debug)
 
     // Préparation des repartitions alignées sur (year, month) pour éviter les sur-coalesce
     val flightsBronzeForWrite =
@@ -159,7 +159,7 @@ object Main {
     // Enrichissement météo (UTC simplifié)
     logger.info("Enrichissement météo (WeatherSlim.enrichWithUTC)")
     val weatherSlim =
-      WeatherSlim.enrichWithUTC(spark, weatherBronze, paths.mapping)
+      WeatherSlim.enrichWithUTC(spark, weatherBronze, paths.mapping, debug)
 
     // Écriture de la météo Silver
     logger.info("Écriture des données Silver Weather Filtered")
