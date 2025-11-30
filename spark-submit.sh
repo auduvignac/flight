@@ -58,6 +58,10 @@ if echo "$EXTRA_ARGS" | grep -q -- "--deltaBase="; then
   fi
 fi
 
+if echo "$EXTRA_ARGS" | grep -q -- "--debug"; then
+  echo "Mode debug activé : analyses/QA supplémentaires exécutées."
+fi
+
 # --- Exécution de Spark ---
 spark-submit \
   --properties-file "$SPARK_CONF" \

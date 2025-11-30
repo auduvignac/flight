@@ -6,8 +6,9 @@ import org.apache.log4j.Logger
 import scala.collection.JavaConverters._ // Scala 2.12.x
 
 final case class AppConfig(
-  // === Environment ===
+  // === Environment & Mode ===
   env: Environment,
+  debug: Boolean = false,
 
   // === Inputs (Local) ===
   deltaBase: Option[String] = None,
@@ -117,6 +118,7 @@ object AppConfig {
 
     AppConfig(
       env = envOf(app.getString("env")),
+      debug = app.getBoolean("debug"),
       // Local inputs
       inFlightsDir = app.getString("input.flights.dir"),
       inWeatherDir = app.getString("input.weather.dir"),
@@ -156,6 +158,7 @@ object AppConfig {
   def logConfig(cfg: AppConfig): Unit = {
     logger.info("========== Configuration Active ==========")
     logger.info(s"Environnement        : ${cfg.env}")
+    logger.info(s"Mode Debug           : ${cfg.debug}")
     logger.info(s"Étape demandée       : ${cfg.stage}")
     logger.info(s"MissingnessThreshold : ${cfg.missingnessThreshold}")
     logger.info(s"Months Flights       : ${cfg.monthsF.mkString(", ")}")
