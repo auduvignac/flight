@@ -16,7 +16,7 @@ object BuildJT {
     airportColInF: String,
     tsColInF: String,
     prefix: String,
-    toleranceMin: Int = 45
+    toleranceMin: Int
   ): DataFrame = {
 
     // 1) Grille horaire: 13 timestamps cibles [ts-12h .. ts] pas 1h
@@ -89,7 +89,7 @@ object BuildJT {
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
     thMinutes: Int,
-    toleranceMin: Int = 45
+    toleranceMin: Int = 20
   ): DataFrame = {
     val base = buildJTBase(flightsEnriched, weatherSlim, toleranceMin)
     attachLabel(base, thMinutes)
@@ -102,7 +102,7 @@ object BuildJT {
   def buildJTBase(
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
-    toleranceMin: Int = 45
+    toleranceMin: Int = 20
   ): DataFrame = {
     val fWithBounds = flightsEnriched
       .filter(col("dep_ts_utc").isNotNull && col("arr_ts_utc").isNotNull)
