@@ -14,7 +14,7 @@ object BuildJT {
     airportColInF: String,
     tsColInF: String,
     prefix: String,
-    toleranceMin: Int = 45
+    toleranceMin: Int = 20
   ): DataFrame = {
 
     // 1) Grille horaire: 13 timestamps cibles [ts-12h .. ts] pas 1h

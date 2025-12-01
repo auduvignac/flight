@@ -7,6 +7,7 @@ import com.emiasd.flight.util.DFUtils._
 import org.apache.log4j.Logger
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.functions.broadcast
 
 object FlightsBronze {
   def readAndEnrich(
@@ -40,6 +41,9 @@ object FlightsBronze {
       )
       .dropDuplicates("airport_id")
 
+    // mapping petit => on le broadcast pour éviter un shuffle inutile
+    val tzBr = broadcast(tz)
+
     val f1 = raw
       .withColumn(
         "OP_CARRIER_AIRLINE_ID",
@@ -59,14 +63,14 @@ object FlightsBronze {
     // tz origine + destination
     val f2 = f1
       .join(
-        tz.as("tzO"),
+        tzBr.as("tzO"),
         col("ORIGIN_AIRPORT_ID") === col("tzO.airport_id"),
         "left"
       )
       .withColumnRenamed("tz_hour", "origin_tz")
       .drop(col("tzO.airport_id")) // << important: col(...) et pas string
       .join(
-        tz.as("tzD"),
+        tzBr.as("tzD"),
         col("DEST_AIRPORT_ID") === col("tzD.airport_id"),
         "left"
       )

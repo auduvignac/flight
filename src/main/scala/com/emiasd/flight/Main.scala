@@ -34,7 +34,7 @@ object Main {
   // =======================
   // Étape 1 : BRONZE
   // =======================
-  def runBronze(spark: SparkSession, paths: IOPaths): Unit = {
+  def runBronze(spark: SparkSession, paths: IOPaths, cfg: AppConfig): Unit = {
     logger.info("=== Étape BRONZE ===")
 
     // Lecture et enrichissement des vols
@@ -56,52 +56,64 @@ object Main {
 
     // Écriture en Delta Lake
     logger.info("Écriture des tables BRONZE en Delta Lake")
+
+    // On aligne le partitionnement sur (year, month)
+    // => un seul gros shuffle ciblé, bon parallélisme local & cluster
+    val flightsBronzePart = flightsBronze.repartition(col("year"), col("month"))
+    val weatherBronzePart = weatherBronze.repartition(col("year"), col("month"))
+
     Writers.writeDelta(
-      flightsBronze.coalesce(2),
+      flightsBronzePart,
       paths.bronzeFlights,
       Seq("year", "month"),
       overwriteSchema = true
     )
     Writers.writeDelta(
-      weatherBronze.coalesce(2),
+      weatherBronzePart,
       paths.bronzeWeather,
       Seq("year", "month"),
       overwriteSchema = true
     )
 
-    // Analyses QA sur les jeux Bronze
-    val qaOutDirFile = new java.io.File("analysis")
-    val qaOutDir = Try {
-      if (!qaOutDirFile.exists()) {
-        if (qaOutDirFile.mkdirs())
-          logger.info(s"Répertoire créé : ${qaOutDirFile.getAbsolutePath}")
-        else
-          logger.warn(
-            s"Impossible de créer le répertoire : ${qaOutDirFile.getAbsolutePath}"
-          )
-      }
-      qaOutDirFile.getAbsolutePath
-    } match {
-      case Success(path) => path
-      case Failure(e) =>
-        logger.error(
-          s"Erreur lors de la création du répertoire ${qaOutDirFile.getAbsolutePath}",
-          e
-        )
-        throw e
-    }
 
-    logger.info("Analyse qualité Bronze : vols et météo")
-    BronzeAnalysis.analyzeFlights(flightsBronze, qaOutDir)
-    BronzeAnalysis.analyzeWeather(weatherBronze, qaOutDir)
+    // Analyses QA sur les jeux Bronze
+    if (cfg.env == Environment.Local) {
+      val qaOutDirFile = new java.io.File("analysis")
+      val qaOutDir = Try {
+        if (!qaOutDirFile.exists()) {
+          if (qaOutDirFile.mkdirs())
+            logger.info(s"Répertoire créé : ${qaOutDirFile.getAbsolutePath}")
+          else
+            logger.warn(
+              s"Impossible de créer le répertoire : ${qaOutDirFile.getAbsolutePath}"
+            )
+        }
+        qaOutDirFile.getAbsolutePath
+      } match {
+        case Success(path) => path
+        case Failure(e) =>
+          logger.error(
+            s"Erreur lors de la création du répertoire ${qaOutDirFile.getAbsolutePath}",
+            e
+          )
+          throw e
+      }
+
+      logger.info("Analyse qualité Bronze : vols et météo")
+      BronzeAnalysis.analyzeFlights(flightsBronze, qaOutDir)
+      BronzeAnalysis.analyzeWeather(weatherBronze, qaOutDir)
+    } else {
+      logger.info("Env = Hadoop : on saute les CSV d’analyse Bronze pour éviter les problèmes de droits HDFS/local.")
+    }
 
     logger.info("Étape Bronze terminée avec succès.")
   }
 
+
   // =======================
   // Étape 2 : SILVER
   // =======================
-  def runSilver(spark: SparkSession, paths: IOPaths): Unit = {
+  def runSilver(spark: SparkSession, paths: IOPaths, cfg: AppConfig): Unit = {
     logger.info("=== Étape SILVER ===")
 
     // Vérification de la présence des tables Bronze
@@ -112,13 +124,13 @@ object Main {
       logger.warn(
         "Aucune table Bronze trouvée — lancement automatique de runBronze()"
       )
-      runBronze(spark, paths)
+      runBronze(spark, paths, cfg)
     } else if (!bronzeFlightsExists) {
       logger.warn("Table Bronze Flights absente — régénération via runBronze()")
-      runBronze(spark, paths)
+      runBronze(spark, paths, cfg)
     } else if (!bronzeWeatherExists) {
       logger.warn("Table Bronze Weather absente — régénération via runBronze()")
-      runBronze(spark, paths)
+      runBronze(spark, paths, cfg)
     } else {
       logger.info(
         "Toutes les tables Bronze sont présentes — passage direct à l'étape Silver."
@@ -136,38 +148,46 @@ object Main {
 
     // Écriture de la table Silver Flights
     logger.info("Écriture des données Silver Flights")
+
+    val flightsSilverPart =
+      flightsSilver.repartition(col("year"), col("month"))
+
     Writers.writeDelta(
-      flightsSilver.coalesce(2),
+      flightsSilverPart,
       paths.silverFlights,
       Seq("year", "month"),
       overwriteSchema = true
     )
 
     // Analyse QA Silver
-    val silverQaDirFile = new java.io.File("analysis/silver")
-    val silverQaDir = Try {
-      if (!silverQaDirFile.exists()) {
-        if (silverQaDirFile.mkdirs())
-          logger.info(s"Répertoire créé : ${silverQaDirFile.getAbsolutePath}")
-        else
-          logger.warn(
-            s"Impossible de créer le répertoire : ${silverQaDirFile.getAbsolutePath}"
+    // Analyse QA Silver (uniquement en local)
+    if (cfg.env == Environment.Local) {
+      val silverQaDirFile = new java.io.File("analysis/silver")
+      val silverQaDir = Try {
+        if (!silverQaDirFile.exists()) {
+          if (silverQaDirFile.mkdirs())
+            logger.info(s"Répertoire créé : ${silverQaDirFile.getAbsolutePath}")
+          else
+            logger.warn(
+              s"Impossible de créer le répertoire : ${silverQaDirFile.getAbsolutePath}"
+            )
+        }
+        silverQaDirFile.getAbsolutePath
+      } match {
+        case Success(path) => path
+        case Failure(e) =>
+          logger.error(
+            s"Erreur lors de la création du répertoire ${silverQaDirFile.getAbsolutePath}",
+            e
           )
+          throw e
       }
-      silverQaDirFile.getAbsolutePath
-    } match {
-      case Success(path) => path
-      case Failure(e) =>
-        logger.error(
-          s"Erreur lors de la création du répertoire ${silverQaDirFile.getAbsolutePath}",
-          e
-        )
-        throw e
+
+      logger.info("Analyse qualité Silver : vols nettoyés")
+      val flightsSilverCheck = Readers.readDelta(spark, paths.silverFlights)
+      SilverAnalysis.analyzeFlights(flightsSilverCheck, silverQaDir)
     }
 
-    logger.info("Analyse qualité Silver : vols nettoyés")
-    val flightsSilverCheck = Readers.readDelta(spark, paths.silverFlights)
-    SilverAnalysis.analyzeFlights(flightsSilverCheck, silverQaDir)
 
     // Enrichissement météo (UTC simplifié)
     logger.info("Enrichissement météo (WeatherSlim.enrichWithUTC)")
@@ -176,8 +196,12 @@ object Main {
 
     // Écriture de la météo Silver
     logger.info("Écriture des données Silver Weather Filtered")
+
+    val weatherSlimPart =
+      weatherSlim.repartition(col("year"), col("month"))
+
     Writers.writeDelta(
-      weatherSlim.coalesce(2),
+      weatherSlimPart,
       paths.silverWeatherFiltered,
       Seq("year", "month"),
       overwriteSchema = true
@@ -189,152 +213,173 @@ object Main {
   // =======================
   // Étape 3 : GOLD
   // =======================
+
   def runGold(spark: SparkSession, paths: IOPaths, cfg: AppConfig): Unit = {
+    import spark.implicits._
     logger.info("=== Étape GOLD ===")
 
-    // Vérification de la présence des tables Silver
+    // --- 1) Vérif Silver (inchangé) ---
     val silverFlightsExists = Readers.exists(spark, paths.silverFlights)
     val silverWeatherExists = Readers.exists(spark, paths.silverWeatherFiltered)
 
     if (!silverFlightsExists && !silverWeatherExists) {
-      logger.warn(
-        "Aucune table Silver trouvée — lancement automatique de runSilver()"
-      )
-      runSilver(spark, paths)
+      logger.warn("Aucune table Silver trouvée — lancement automatique de runSilver()")
+      runSilver(spark, paths, cfg)
     } else if (!silverFlightsExists) {
       logger.warn("Table Silver Flights absente — régénération via runSilver()")
-      runSilver(spark, paths)
+      runSilver(spark, paths, cfg)
     } else if (!silverWeatherExists) {
       logger.warn("Table Silver Weather absente — régénération via runSilver()")
-      runSilver(spark, paths)
+      runSilver(spark, paths, cfg)
     } else {
-      logger.info(
-        "Toutes les tables Silver sont présentes — passage direct à l'étape Gold."
-      )
+      logger.info("Toutes les tables Silver sont présentes — passage direct à l'étape Gold.")
     }
 
-    // Lecture des tables Silver
+    // --- 2) Lecture Silver & BuildJT ---
     logger.info("Lecture des tables SILVER (flights & weather)")
     val flightsPrepared = Readers.readDelta(spark, paths.silverFlights)
     val weatherSlimDF   = Readers.readDelta(spark, paths.silverWeatherFiltered)
 
-    // Enrichissement des vols
     logger.info("Enrichissement des vols (FlightsEnriched)")
     val flightsEnriched = FlightsEnriched.build(flightsPrepared)
 
-    // Jointure météo-vols
     logger.info("Construction de la jointure spatio-temporelle (BuildJT)")
     val jtOut = BuildJT.buildJT(flightsEnriched, weatherSlimDF, cfg.thMinutes)
 
-    // Écriture du résultat Gold
+    // --- 3) SLIMMER : ne garder que ce qui est utilisé plus loin ---
+    // NOTE : on garde flight_key explicitement, même si présent dans F, pour simplifier
+    val jtSlim = jtOut.select(
+      col("F"),
+      col("Wo"),
+      col("Wd"),
+      col("C"),
+      col("F.flight_key").alias("flight_key"),
+      col("year"),
+      col("month")
+    )
+
+    logger.info("JT (slim) schema = " + jtSlim.schema.treeString)
+
+    // --- 4) Répartition contrôlée & write Delta sur JT ---
+    // On adapte le nombre de partitions au nombre de mois pour limiter la taille mémoire de chaque tâche.
+    val monthsCount      = cfg.monthsF.distinct.size
+    val numPartsForJT    = math.max(64 * monthsCount, 128)  // ex : 8 mois -> 512 partitions
+    logger.info(s"JT (slim) repartition before write : months = $monthsCount, partitions = $numPartsForJT")
+
+    val jtPartitionedSlim =
+      jtSlim.repartition(numPartsForJT, col("year"), col("month"))
+
     logger.info("Écriture de la table GOLD (Joint Table)")
     Writers.writeDelta(
-      jtOut,
+      jtPartitionedSlim,
       paths.goldJT,
       Seq("year", "month"),
       overwriteSchema = true
     )
-
     logger.info(s"Table GOLD écrite : ${paths.goldJT}")
 
-    // Sanity checks de base
-    import spark.implicits._
-    val jtCheck = Readers.readDelta(spark, paths.goldJT)
+    // --- 5) Choix de la source pour la suite ---
+    // En Local : on relit pour vérifier le write
+    // En Hadoop : on évite une relecture, on réutilise jtPartitionedSlim
+    val jtForTargets =
+      if (cfg.env == Environment.Local) {
+        logger.info("Env = Local : relecture de JT depuis Delta pour vérification")
+        Readers.readDelta(spark, paths.goldJT)
+      } else {
+        logger.info("Env = Hadoop : réutilisation de JT en mémoire pour les targets (pas de relecture)")
+        jtPartitionedSlim
+      }
 
-    logger.info(s"JT rows = ${jtCheck.count}")
-    logger.info(
-      s"JT distinct flight_key = ${jtCheck.select($"F.flight_key").distinct.count}"
-    )
+    // --- 6) Sanity checks : uniquement en Local ---
+    if (cfg.env == Environment.Local) {
+      val jtCheck = jtForTargets
 
-    jtCheck
-      .agg(
-        sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0)).as("null_dep"),
-        sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0)).as("null_arr"),
-        count(lit(1)).as("total")
+      logger.info(s"JT rows = ${jtCheck.count}")
+      logger.info(
+        s"JT distinct flight_key = ${jtCheck.select($"flight_key").distinct.count}"
       )
-      .show(false)
 
-    // Part des vols avec observations météo Wo / Wd
-    val withFlags = jtCheck
-      .withColumn("hasWo", size($"Wo") > 0)
-      .withColumn("hasWd", size($"Wd") > 0)
+      jtCheck
+        .agg(
+          sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0)).as("null_dep"),
+          sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0)).as("null_arr"),
+          count(lit(1)).as("total")
+        )
+        .show(false)
 
-    withFlags
-      .agg(
-        avg(when($"hasWo", lit(1)).otherwise(lit(0))).as("pct_with_Wo"),
-        avg(when($"hasWd", lit(1)).otherwise(lit(0))).as("pct_with_Wd")
-      )
-      .show(false)
+      val withFlags = jtCheck
+        .withColumn("hasWo", size($"Wo") > 0)
+        .withColumn("hasWd", size($"Wd") > 0)
 
-    // Aperçu visuel (top 10)
-    jtCheck
-      .select(
-        $"F.carrier",
-        $"F.flnum",
-        $"F.date",
-        $"F.origin_airport_id",
-        $"F.dest_airport_id",
-        $"C",
-        size($"Wo").as("nWo"),
-        size($"Wd").as("nWd")
-      )
-      .orderBy(desc("nWo"))
-      .show(10, false)
+      withFlags
+        .agg(
+          avg(when($"hasWo", lit(1)).otherwise(lit(0))).as("pct_with_Wo"),
+          avg(when($"hasWd", lit(1)).otherwise(lit(0))).as("pct_with_Wd")
+        )
+        .show(false)
 
-    // === Analyse τ pour D1 ===
+      jtCheck
+        .select(
+          $"F.carrier",
+          $"F.flnum",
+          $"F.date",
+          $"F.origin_airport_id",
+          $"F.dest_airport_id",
+          $"C",
+          size($"Wo").as("nWo"),
+          size($"Wd").as("nWd")
+        )
+        .orderBy(desc("nWo"))
+        .show(10, false)
 
-    jtCheck
-      .select(
-        col("F.arr_delay_new"),
-        col("F.weather_delay"),
-        col("F.nas_delay"),
-        col("F.nas_weather_delay")
-      )
-      .show(5, truncate = false)
+      jtCheck
+        .select(
+          col("F.arr_delay_new"),
+          col("F.weather_delay"),
+          col("F.nas_delay"),
+          col("F.nas_weather_delay")
+        )
+        .show(5, truncate = false)
+    }
 
-    // === Génération D1..D4 x Th via batch unique ===
-
+    // --- 7) Génération des targets (D1..D4 x Th) ---
     val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
     val tau      = 0.95
     val ths      = Seq(15, 30, 45, 60, 90)
 
-    // 1) Clés équilibrées pour tous les jeux (léger)
+    logger.info(s"TargetBatch.buildKeysForThresholds sur ths=$ths, tau=$tau")
     val keysAll =
-      TargetBatch.buildKeysForThresholds(jtCheck, ths, tau, sampleSeed = 1234L)
+      TargetBatch.buildKeysForThresholds(jtForTargets, ths, tau, sampleSeed = 1234L)
 
-    // 2) Un seul join pour ré-attacher JT complet (Wo/Wd inclus)
+    logger.info("TargetBatch.materializeAll (ré-attache Wo/Wd/F) en cours...")
     val fullAll =
-      TargetBatch.materializeAll(jtCheck, keysAll, includeLightCols = true)
+      TargetBatch.materializeAll(jtForTargets, keysAll, includeLightCols = true)
 
-    // 2bis) Schéma explicite pour la table targets
-    // (à ajuster si tu veux plus/moins de colonnes)
-    val targetsDf = fullAll.select(
-      col("F"),  // struct vol
-      col("Wo"), // météo origine
-      col("Wd"), // météo destination
-      col("C"),  // label binaire
+    // Sélection des colonnes pour la table finale des targets
+    val targetsDfBase = fullAll.select(
+      col("F"),
+      col("Wo"),
+      col("Wd"),
+      col("C"),
       col("flight_key"),
       col("year"),
       col("month"),
-      col("ds"),    // dataset : D1..D4
-      col("th"),    // seuil minutes
-      col("is_pos") // label D* (balancé)
+      col("ds"),
+      col("th"),
+      col("is_pos")
     )
 
-    // 3) Écriture unique et partitionnée ds/th/year/month
+    // Pour l'écriture des targets, on repartitionne aussi pour éviter des partitions monstrueuses
+    val numPartsTargets = math.max(32 * monthsCount, 128)  // un peu moins agressif que JT
+    logger.info(s"Targets repartition before write : months = $monthsCount, partitions = $numPartsTargets")
+
+    val targetsPartitioned =
+      targetsDfBase.repartition(numPartsTargets, col("ds"), col("th"), col("year"), col("month"))
+
     val outRoot = s"$goldBase/targets"
 
-    val toWrite =
-      if (
-        targetsDf.columns
-          .contains("year") && targetsDf.columns.contains("month")
-      )
-        targetsDf.repartition(col("ds"), col("th"), col("year"), col("month"))
-      else
-        targetsDf.repartition(col("ds"), col("th"))
-
     Writers.writeDelta(
-      toWrite,
+      targetsPartitioned,
       outRoot,
       Seq("ds", "th", "year", "month"),
       overwriteSchema = true
@@ -342,15 +387,22 @@ object Main {
 
     logger.info("Étape Gold terminée avec succès.")
 
-    val targetsPath = outRoot
-    TargetsInspection.inspectSlice(
-      spark,
-      targetsPath,
-      dsValue = "D2",
-      thValue = 60,
-      n = 20
-    )
+    // --- 8) Inspection détaillée uniquement en Local ---
+    if (cfg.env == Environment.Local) {
+      val targetsPath = outRoot
+      TargetsInspection.inspectSlice(
+        spark,
+        targetsPath,
+        dsValue = "D2",
+        thValue = 60,
+        n = 20
+      )
+    }
   }
+
+
+
+
 
   // =======================
   // Étape 4 : DIAGNOSTICS
@@ -697,6 +749,20 @@ object Main {
       b.getOrCreate()
     }
 
+    // Parallélisme par défaut si non défini dans sparkConfs / application.conf
+    if (!cfg.sparkConfs.contains("spark.sql.shuffle.partitions")) {
+      val defaultShuffle =
+        cfg.env match {
+          case Environment.Hadoop => "192" // cluster : plus de tâches
+          case _                  => "64"  // local/Docker : un peu plus modéré
+        }
+      logger.info(
+        s"[SparkConfig] spark.sql.shuffle.partitions non défini — fallback à $defaultShuffle pour ${cfg.env}"
+      )
+      spark.conf.set("spark.sql.shuffle.partitions", defaultShuffle)
+    }
+
+
     val paths = PathResolver.resolve(cfg)
 
     logger.info(s"[Paths] bronzeFlights=${paths.bronzeFlights}")
@@ -704,14 +770,14 @@ object Main {
     logger.info(s"[Paths] goldJT=${paths.goldJT}")
 
     cfg.stage.toLowerCase match {
-      case "bronze"      => runBronze(spark, paths)
-      case "silver"      => runSilver(spark, paths)
+      case "bronze"      => runBronze(spark, paths, cfg)
+      case "silver"      => runSilver(spark, paths, cfg)
       case "gold"        => runGold(spark, paths, cfg)
       case "diagnostics" => runDiagnostics(spark, paths, cfg)
       case "ml"          => runModeling(spark, paths, cfg)
       case "all" =>
-        runBronze(spark, paths)
-        runSilver(spark, paths)
+        runBronze(spark, paths, cfg)
+        runSilver(spark, paths, cfg)
         runGold(spark, paths, cfg)
         runModeling(spark, paths, cfg)
       case other =>

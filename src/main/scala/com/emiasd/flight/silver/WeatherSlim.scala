@@ -5,6 +5,7 @@ import com.emiasd.flight.io.Readers
 import com.emiasd.flight.util.DFUtils._
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.functions.broadcast
 
 object WeatherSlim {
 
@@ -29,6 +30,8 @@ object WeatherSlim {
       )
       .dropDuplicates("WBAN")
 
+    val tzBr = broadcast(tz)
+
     logger.info(
       s"[WeatherSlim] Timezone mapping contains ${tz.count()} unique WBANs"
     )
@@ -36,7 +39,7 @@ object WeatherSlim {
     // INNER join: Only keep weather observations with valid airport_id mapping
     // This filters out weather stations not associated with airports
     // Expected behavior: ~7-8% data loss (stations without airport mapping)
-    val joined = weatherBronze.join(tz, Seq("WBAN"), "inner")
+    val joined = weatherBronze.join(tzBr, Seq("WBAN"), "inner")
 
     // Validation: count rows after join and warn if excessive loss
     val countAfter = joined.count()

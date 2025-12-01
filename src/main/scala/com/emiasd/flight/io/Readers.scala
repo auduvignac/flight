@@ -5,8 +5,17 @@ import _root_.io.delta.tables.DeltaTable
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object Readers {
-  def exists(spark: SparkSession, path: String): Boolean =
-    DeltaTable.isDeltaTable(spark, path)
+//  def exists(spark: SparkSession, path: String): Boolean =
+//    DeltaTable.isDeltaTable(spark, path)
+
+  import org.apache.hadoop.fs.{FileSystem, Path}
+
+  def exists(spark: SparkSession, path: String): Boolean = {
+    val hadoopConf = spark.sparkContext.hadoopConfiguration
+    val uri = new java.net.URI(path)
+    val fs  = FileSystem.get(uri, hadoopConf)
+    fs.exists(new Path(path))
+  }
 
   def readCsv(
     spark: SparkSession,
