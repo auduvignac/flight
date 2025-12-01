@@ -12,6 +12,7 @@ LOCAL=false
 RESET=false
 STAGE="all"
 DATA_DIR_PATH=${DATA_PATH:-./data}
+DEBUG=false
 
 # === Paramètres associés à la modélisation ===
 DS=""
@@ -33,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --originHours=*) ORIGIN_HOURS="${1#*=}" ;;
     --destHours=*) DEST_HOURS="${1#*=}" ;;
     --tag=*) TAG="${1#*=}" ;;
+    --debug) DEBUG=true ;;
     *) echo "⚠️  Argument inconnu : $1" ;;
   esac
   shift
@@ -45,6 +47,7 @@ EXTRA_ARGS=""
 [ -n "$ORIGIN_HOURS" ] && EXTRA_ARGS+=" --originHours=$ORIGIN_HOURS"
 [ -n "$DEST_HOURS" ]   && EXTRA_ARGS+=" --destHours=$DEST_HOURS"
 [ -n "$TAG" ]          && EXTRA_ARGS+=" --tag=$TAG"
+[ "$DEBUG" = true ]    && EXTRA_ARGS+=" --debug"
 
 EXTRA_ARGS+=" --deltaBase=$DELTA_BASE"
 

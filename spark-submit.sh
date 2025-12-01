@@ -29,7 +29,11 @@ LOG_CONF=${LOG_CONFIG_PATH:-/opt/spark/conf/log4j2.properties}
 # --- application configuration ---
 CFG_FILE=${APPLICATION_CONFIG_PATH:-/opt/config/application.conf}
 # --- configuration spark ---
-SPARK_CONF=${SPARK_CONFIG_PATH:-/opt/spark/conf/spark.conf}
+DEFAULT_SPARK_CONF="/opt/spark/conf/spark-submit.local.conf"
+if [ -f "./conf/spark-submit.local.conf" ]; then
+  DEFAULT_SPARK_CONF="./conf/spark-submit.local.conf"
+fi
+SPARK_CONF=${SPARK_CONFIG_PATH:-$DEFAULT_SPARK_CONF}
 
 echo "=============================================="
 echo "🚀 Lancement de Spark"
@@ -52,6 +56,10 @@ if echo "$EXTRA_ARGS" | grep -q -- "--deltaBase="; then
   else
     echo "⚠️  DeltaBase introuvable localement : $DELTA_BASE"
   fi
+fi
+
+if echo "$EXTRA_ARGS" | grep -q -- "--debug"; then
+  echo "Mode debug activé : analyses/QA supplémentaires exécutées."
 fi
 
 # --- Exécution de Spark ---

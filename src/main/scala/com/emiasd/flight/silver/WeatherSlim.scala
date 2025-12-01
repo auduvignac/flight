@@ -11,14 +11,20 @@ object WeatherSlim {
   def enrichWithUTC(
     spark: SparkSession,
     weatherBronze: DataFrame,
-    wbanTzPath: String
+    wbanTzPath: String,
+    debug: Boolean
   ): DataFrame = {
 
     val logger = org.apache.log4j.Logger.getLogger(getClass.getName)
 
-    // Validation: count rows before join
-    val countBefore = weatherBronze.count()
-    logger.info(s"[WeatherSlim] Weather Bronze rows before join: $countBefore")
+    val countBeforeOpt =
+      if (debug) {
+        val countBefore = weatherBronze.count()
+        logger.info(
+          s"[WeatherSlim] Weather Bronze rows before join: $countBefore"
+        )
+        Some(countBefore)
+      } else None
 
     val tz = Readers
       .readCsv(spark, Seq(wbanTzPath))
@@ -29,9 +35,11 @@ object WeatherSlim {
       )
       .dropDuplicates("WBAN")
 
-    logger.info(
-      s"[WeatherSlim] Timezone mapping contains ${tz.count()} unique WBANs"
-    )
+    if (debug) {
+      logger.info(
+        s"[WeatherSlim] Timezone mapping contains ${tz.count()} unique WBANs"
+      )
+    }
 
     // INNER join: Only keep weather observations with valid airport_id mapping
     // This filters out weather stations not associated with airports
@@ -39,21 +47,24 @@ object WeatherSlim {
     val joined = weatherBronze.join(tz, Seq("WBAN"), "inner")
 
     // Validation: count rows after join and warn if excessive loss
-    val countAfter = joined.count()
-    val lossRate   = 100.0 * (countBefore - countAfter) / countBefore
+    if (debug) {
+      val countAfter  = joined.count()
+      val countBefore = countBeforeOpt.getOrElse(countAfter)
+      val lossRate    = 100.0 * (countBefore - countAfter) / countBefore
 
-    logger.info(s"[WeatherSlim] Weather rows after INNER join: $countAfter")
-    logger.info(
-      s"[WeatherSlim] Data loss: ${countBefore - countAfter} rows (${lossRate}%.2f%%)"
-    )
-
-    if (lossRate > 15.0) {
-      logger.warn(
-        s"⚠️ INNER join dropped ${lossRate}%.2f%% of weather data! " +
-          s"Expected <15%. Check timezone mapping file: $wbanTzPath"
+      logger.info(s"[WeatherSlim] Weather rows after INNER join: $countAfter")
+      logger.info(
+        s"[WeatherSlim] Data loss: ${countBefore - countAfter} rows (${lossRate}%.2f%%)"
       )
-    } else {
-      logger.info(s"✓ Data loss is acceptable (${lossRate}%.2f%% < 15%)")
+
+      if (lossRate > 15.0) {
+        logger.warn(
+          s"⚠️ INNER join dropped ${lossRate}%.2f%% of weather data! " +
+            s"Expected <15%. Check timezone mapping file: $wbanTzPath"
+        )
+      } else {
+        logger.info(s"✓ Data loss is acceptable (${lossRate}%.2f%% < 15%)")
+      }
     }
 
     val df = joined
