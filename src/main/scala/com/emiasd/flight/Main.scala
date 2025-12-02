@@ -38,7 +38,7 @@ object Main {
 
   final case class BronzeData(flights: DataFrame, weather: DataFrame)
   final case class SilverData(flights: DataFrame, weatherSlim: DataFrame)
-  final case class GoldData(joints: Map[Int, DataFrame], targets: DataFrame)
+  final case class GoldData(targets: DataFrame)
 
   // =======================
   // Étape 1 : BRONZE
@@ -210,35 +210,45 @@ object Main {
     paths: IOPaths,
     cfg: AppConfig,
     debug: Boolean,
-    persist: Boolean
+    persist: Boolean,
+    silverData: Option[SilverData] = None
   ): GoldData = {
     logger.info("=== Étape GOLD ===")
 
-    // Vérification de la présence des tables Silver
-    val silverFlightsExists = Readers.exists(spark, paths.silverFlights)
-    val silverWeatherExists = Readers.exists(spark, paths.silverWeatherFiltered)
+    // Vérification/lecture des tables Silver
+    val resolvedSilver: SilverData =
+      silverData.getOrElse {
+        if (persist) {
+          val silverFlightsExists = Readers.exists(spark, paths.silverFlights)
+          val silverWeatherExists =
+            Readers.exists(spark, paths.silverWeatherFiltered)
 
-    if (!silverFlightsExists && !silverWeatherExists) {
-      logger.warn(
-        "Aucune table Silver trouvée — lancement automatique de runSilver()"
-      )
-      runSilver(spark, paths, debug, persist)
-    } else if (!silverFlightsExists) {
-      logger.warn("Table Silver Flights absente — régénération via runSilver()")
-      runSilver(spark, paths, debug, persist)
-    } else if (!silverWeatherExists) {
-      logger.warn("Table Silver Weather absente — régénération via runSilver()")
-      runSilver(spark, paths, debug, persist)
-    } else {
-      logger.info(
-        "Toutes les tables Silver sont présentes — passage direct à l'étape Gold."
-      )
-    }
+          if (!silverFlightsExists || !silverWeatherExists) {
+            logger.warn(
+              "Tables Silver manquantes — lancement automatique de runSilver()."
+            )
+            runSilver(spark, paths, debug, persist)
+          } else {
+            logger.info(
+              "Lecture des tables SILVER (flights & weather) depuis Delta"
+            )
+            SilverData(
+              Readers.readDelta(spark, paths.silverFlights),
+              Readers.readDelta(spark, paths.silverWeatherFiltered)
+            )
+          }
+        } else {
+          logger.info(
+            "Persist désactivé — recalcul complet des tables Silver en mémoire."
+          )
+          runSilver(spark, paths, debug, persist = false)
+        }
+      }
 
     // Lecture des tables Silver
     logger.info("Lecture des tables SILVER (flights & weather)")
-    val flightsPrepared = Readers.readDelta(spark, paths.silverFlights)
-    val weatherSlimDF   = Readers.readDelta(spark, paths.silverWeatherFiltered)
+    val flightsPrepared = resolvedSilver.flights
+    val weatherSlimDF   = resolvedSilver.weatherSlim
 
     // Enrichissement des vols
     logger.info("Enrichissement des vols (FlightsEnriched)")
@@ -278,10 +288,10 @@ object Main {
       // garder la JT de ce seuil
       jtResults += thMinutes -> jtOut
 
-      // Chemin de sortie spécifique à ce seuil
-      val goldJTPath = s"$goldBase/JT_th$thMinutes"
-
       if (persist) {
+        // Chemin de sortie spécifique à ce seuil
+        val goldJTPath = s"$goldBase/JT_th$thMinutes"
+
         val jtOutForWrite =
           if (thresholds.size == 1)
             jtOut.coalesce(
@@ -308,24 +318,21 @@ object Main {
 
       if (debug) {
         import spark.implicits._
-        val jtCheck = Readers.readDelta(spark, goldJTPath)
 
-        logger.info(s"JT rows (th=$thMinutes) = ${jtCheck.count}")
+        val df = jtOut
+
+        logger.info(s"JT rows (th=$thMinutes) = ${df.count}")
         logger.info(
-          s"JT distinct flight_key (th=$thMinutes) = ${jtCheck.select($"F.flight_key").distinct.count}"
+          s"JT distinct flight_key (th=$thMinutes) = ${df.select($"F.flight_key").distinct.count}"
         )
 
-        jtCheck
-          .agg(
-            sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0))
-              .as("null_dep"),
-            sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0))
-              .as("null_arr"),
-            count(lit(1)).as("total")
-          )
-          .show(false)
+        df.agg(
+          sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0)).as("null_dep"),
+          sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0)).as("null_arr"),
+          count(lit(1)).as("total")
+        ).show(false)
 
-        val withFlags = jtCheck
+        val withFlags = df
           .withColumn("hasWo", size($"Wo") > 0)
           .withColumn("hasWd", size($"Wd") > 0)
 
@@ -336,28 +343,24 @@ object Main {
           )
           .show(false)
 
-        jtCheck
-          .select(
-            $"F.carrier",
-            $"F.flnum",
-            $"F.date",
-            $"F.origin_airport_id",
-            $"F.dest_airport_id",
-            $"C",
-            size($"Wo").as("nWo"),
-            size($"Wd").as("nWd")
-          )
-          .orderBy(desc("nWo"))
+        df.select(
+          $"F.carrier",
+          $"F.flnum",
+          $"F.date",
+          $"F.origin_airport_id",
+          $"F.dest_airport_id",
+          $"C",
+          size($"Wo").as("nWo"),
+          size($"Wd").as("nWd")
+        ).orderBy(desc("nWo"))
           .show(10, false)
 
-        jtCheck
-          .select(
-            col("F.arr_delay_new"),
-            col("F.weather_delay"),
-            col("F.nas_delay"),
-            col("F.nas_weather_delay")
-          )
-          .show(5, truncate = false)
+        df.select(
+          col("F.arr_delay_new"),
+          col("F.weather_delay"),
+          col("F.nas_delay"),
+          col("F.nas_weather_delay")
+        ).show(5, truncate = false)
       } else {
         logger.info("Mode debug désactivé — sanity checks JT ignorés.")
       }
@@ -370,8 +373,7 @@ object Main {
     val tau = 0.95
     val ths = thresholds
 
-    val firstJTPath = s"$goldBase/JT_th${ths.head}"
-    val jtCheck     = Readers.readDelta(spark, firstJTPath)
+    val jtCheck = jtResults(ths.head)
 
     val keysAll =
       TargetBatch.buildKeysForThresholds(jtCheck, ths, tau, sampleSeed = 1234L)
@@ -392,10 +394,10 @@ object Main {
       col("is_pos")
     )
 
-    val outRoot = s"$goldBase/targets"
     if (persist) {
+      val outRoot = s"$goldBase/targets"
 
-      val toWrite =
+      val targetsPartitioned =
         if (
           targetsDf.columns
             .contains("year") && targetsDf.columns.contains("month")
@@ -405,7 +407,7 @@ object Main {
           targetsDf.repartition(col("ds"), col("th"))
 
       Writers.writeDelta(
-        toWrite,
+        targetsPartitioned,
         outRoot,
         Seq("ds", "th", "year", "month"),
         overwriteSchema = true
@@ -415,10 +417,9 @@ object Main {
     logger.info("Étape Gold terminée avec succès.")
 
     if (debug) {
-      val targetsPath = outRoot
       TargetsInspection.inspectSlice(
         spark,
-        targetsPath,
+        targetsDf,
         dsValue = "D2",
         thValue = ths.head,
         n = 20
@@ -426,7 +427,7 @@ object Main {
     } else {
       logger.info("Mode debug désactivé — inspection des targets ignorée.")
     }
-    GoldData(jtResults.toMap, targetsDf)
+    GoldData(targetsDf)
   }
 
   // =======================
@@ -505,35 +506,36 @@ object Main {
 
     logger.info("=== Étape Spark ML ===")
 
-    // Vérification de la présence de la table Gold
-    val goldJTExists = persist && Readers.exists(spark, paths.goldJT)
+    // Vérification/lecture des tables Gold
+    val resolvedGold: GoldData =
+      goldData.getOrElse {
+        if (persist) {
+          val goldJTExists = Readers.exists(spark, paths.goldJT)
 
-    val resolvedGoldData: Option[GoldData] =
-      goldData.orElse {
-        if (!persist) {
-          logger.info(
-            "Persist désactivé — calcul en mémoire de l'étape Gold pour l'entraînement ML."
-          )
-          Some(runGold(spark, paths, cfg, debug, persist = false))
-        } else if (!goldJTExists) {
-          logger.warn(
-            "Aucune table Gold trouvée — lancement automatique de runGold()."
-          )
-          Some(runGold(spark, paths, cfg, debug, persist = true))
+          if (!goldJTExists) {
+            logger.warn(
+              "Tables Gold manquantes — lancement automatique de runGold()."
+            )
+            runGold(spark, paths, cfg, debug, persist)
+          } else {
+            // Reconstruction du chemin des targets comme dans runGold
+            val goldBase =
+              paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
+            val targetsPath = s"$goldBase/targets"
+            logger.info(
+              "Lecture des tables SILVER (flights & weather) depuis Delta"
+            )
+            GoldData(
+              Readers.readDelta(spark, targetsPath)
+            )
+          }
         } else {
-          None
+          logger.info(
+            "Persist désactivé — recalcul complet des tables Gold en mémoire."
+          )
+          runGold(spark, paths, cfg, debug, persist = false)
         }
       }
-
-    if (persist && goldJTExists) {
-      logger.info(
-        "Tables Gold présentes — lecture directe des targets depuis Delta."
-      )
-    }
-
-    // Reconstruction du chemin des targets comme dans runGold
-    val goldBase    = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
-    val targetsPath = s"$goldBase/targets"
 
     // Configuration de base pour les features
     val baseCfg = FeatureConfig(
@@ -594,13 +596,12 @@ object Main {
       val (trainDF, testDF, extraNumCols) =
         FeatureBuilder.prepareDataset(
           spark,
-          targetsPath,
           e.ds,
           e.th,
           baseCfg,
           e.originHours,
           e.destHours,
-          inMemoryTargets = resolvedGoldData.map(_.targets)
+          raw = resolvedGold.targets
         )
 
       ModelingPipeline.trainAndEvaluate(
@@ -851,23 +852,23 @@ object Main {
             persistMode,
             bronzeData = Some(bronzeData)
           )
-      // val goldData =
-      //   runGold(
-      //     spark,
-      //     paths,
-      //     cfg,
-      //     debugMode,
-      //     persistMode,
-      //     silverData = Some(silverData)
-      //   )
-      // runModeling(
-      //   spark,
-      //   paths,
-      //   cfg,
-      //   debugMode,
-      //   persistMode,
-      //   goldData = Some(goldData)
-      // )
+        val goldData =
+          runGold(
+            spark,
+            paths,
+            cfg,
+            debugMode,
+            persistMode,
+            silverData = Some(silverData)
+          )
+        runModeling(
+          spark,
+          paths,
+          cfg,
+          debugMode,
+          persistMode,
+          goldData = Some(goldData)
+        )
       case other =>
         logger.error(
           s"Étape inconnue: $other (bronze, silver, gold, diagnostics, ml, all)"
