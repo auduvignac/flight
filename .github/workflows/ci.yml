@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, optimization]
+    branches: [main, feature/persist]
   pull_request:
   workflow_dispatch:
 
@@ -143,7 +143,7 @@ jobs:
           path: /app/data/
 
       - name: Run Bronze stage
-        run: ./run-app.sh --stage=bronze --local
+        run: ./run-app.sh --stage=bronze --local --persist
 
       - name: Upload Bronze analysis
         uses: actions/upload-artifact@v4
@@ -156,6 +156,29 @@ jobs:
         with:
           name: delta-bronze
           path: /app/delta/
+
+  # ============================================
+  # Étape 3bis — Full Pipeline (All Stages)
+  # ============================================
+  full-pipeline:
+    name: 🌈 Full Pipeline - End-to-End Run
+    needs: [prepare-dataset, docker-build]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/auduvignac/flight:latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dataset
+        uses: actions/download-artifact@v4
+        with:
+          name: dataset
+          path: /app/data/
+
+      - name: Run full pipeline (all stages)
+        run: ./run-app.sh --stage="all" --local
 
   # ============================================
   # Étape 4 — Silver Stage
@@ -184,7 +207,7 @@ jobs:
           path: /app/delta/
 
       - name: Run Silver stage
-        run: ./run-app.sh --stage=silver --local
+        run: ./run-app.sh --stage=silver --local --persist
 
       - name: Upload Silver analysis
         uses: actions/upload-artifact@v4
@@ -231,7 +254,7 @@ jobs:
         run: |
           echo "Building Gold for threshold ${{ matrix.th }} minutes"
           ./run-app.sh \
-            --stage=gold --local \
+            --stage=gold --local --persist \
             --deltaBase="/app/delta" \
             --th=${{ matrix.th }}
 
@@ -320,7 +343,7 @@ jobs:
         run: |
           echo "🚀 Running ML experiment: ${{ matrix.exp.tag }}"
           ./run-app.sh \
-            --stage=ml --local \
+            --stage=ml --local --persist \
             --deltaBase="/app/delta-${{ matrix.exp.tag }}" \
             --ds=${{ matrix.exp.ds }} \
             --th=${{ matrix.exp.th }} \

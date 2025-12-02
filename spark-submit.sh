@@ -61,6 +61,11 @@ fi
 if echo "$EXTRA_ARGS" | grep -q -- "--debug"; then
   echo "Mode debug activé : analyses/QA supplémentaires exécutées."
 fi
+if echo "$EXTRA_ARGS" | grep -q -- "--persist"; then
+  echo "📝 Mode persist activé : les tables seront écrites sur disque."
+else
+  echo "⚠️  Mode persist désactivé : aucune table ne sera écrite."
+fi
 
 # --- Exécution de Spark ---
 spark-submit \

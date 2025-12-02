@@ -317,10 +317,13 @@ object FeatureBuilder {
     th: Int,
     cfg: FeatureConfig = FeatureConfig(),
     originHours: Int = 0,
-    destHours: Int = 0
+    destHours: Int = 0,
+    inMemoryTargets: Option[DataFrame] = None
   ): (DataFrame, DataFrame, Array[String]) = {
 
-    val raw = spark.read.format("delta").load(targetsPath)
+    val raw = inMemoryTargets.getOrElse {
+      spark.read.format("delta").load(targetsPath)
+    }
 
     val slice = raw
       .filter(col("ds") === lit(ds) && col("th") === lit(th))
