@@ -250,7 +250,7 @@ object Main {
       }
 
     val flightsPrepared = resolvedSilver.flights
-    val weatherSlimDF  = resolvedSilver.weatherSlim
+    val weatherSlimDF   = resolvedSilver.weatherSlim
 
     // Enrichissement Flights
     logger.info("Enrichissement des vols (FlightsEnriched)")
@@ -289,7 +289,10 @@ object Main {
         val jtForWrite =
           if (thresholds.size == 1)
             jtMat.coalesce(
-              spark.conf.getOption("flight.gold.single.coalesce").map(_.toInt).getOrElse(8)
+              spark.conf
+                .getOption("flight.gold.single.coalesce")
+                .map(_.toInt)
+                .getOrElse(8)
             )
           else jtMat
 
@@ -310,27 +313,42 @@ object Main {
 
     // 4. Génération des targets
 
-    val jtCheck = jtResults(thresholds.head)   // version matérialisée
+    val jtCheck = jtResults(thresholds.head) // version matérialisée
 
     val tau = 0.95
 
     val keysAll =
-      TargetBatch.buildKeysForThresholds(jtCheck, thresholds, tau, sampleSeed = 1234L)
+      TargetBatch.buildKeysForThresholds(
+        jtCheck,
+        thresholds,
+        tau,
+        sampleSeed = 1234L
+      )
 
     val fullAll =
       TargetBatch.materializeAll(jtCheck, keysAll, includeLightCols = true)
 
     val targetsDf = fullAll.select(
-      col("F"), col("Wo"), col("Wd"), col("C"),
-      col("flight_key"), col("year"), col("month"),
-      col("ds"), col("th"), col("is_pos")
+      col("F"),
+      col("Wo"),
+      col("Wd"),
+      col("C"),
+      col("flight_key"),
+      col("year"),
+      col("month"),
+      col("ds"),
+      col("th"),
+      col("is_pos")
     )
 
     if (persist) {
       val out = s"$goldBase/targets"
 
       val targetsPartitioned =
-        if (targetsDf.columns.contains("year") && targetsDf.columns.contains("month"))
+        if (
+          targetsDf.columns
+            .contains("year") && targetsDf.columns.contains("month")
+        )
           targetsDf.repartition(col("ds"), col("th"), col("year"), col("month"))
         else
           targetsDf.repartition(col("ds"), col("th"))
@@ -344,7 +362,13 @@ object Main {
     }
 
     if (debug) {
-      TargetsInspection.inspectSlice(spark, targetsDf, dsValue = "D2", thValue = thresholds.head, n = 20)
+      TargetsInspection.inspectSlice(
+        spark,
+        targetsDf,
+        dsValue = "D2",
+        thValue = thresholds.head,
+        n = 20
+      )
     } else {
       logger.info("Mode debug désactivé — inspection des targets ignorée.")
     }
