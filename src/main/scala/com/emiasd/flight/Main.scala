@@ -547,7 +547,7 @@ object Main {
               paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
             val targetsPath = s"$goldBase/targets"
             logger.info(
-              "Lecture des tables SILVER (flights & weather) depuis Delta"
+              "Lecture des tables GOLD (targetsPath) depuis Delta"
             )
             GoldData(
               Readers.readDelta(spark, targetsPath)
@@ -619,7 +619,6 @@ object Main {
 
       val (trainDF, testDF, extraNumCols) =
         FeatureBuilder.prepareDataset(
-          spark,
           e.ds,
           e.th,
           baseCfg,
