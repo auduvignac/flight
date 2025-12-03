@@ -32,6 +32,54 @@ object Main {
   val logger: Logger = Logger.getLogger(getClass.getName)
 
   // =======================
+  // Helpers timing / mémoire
+  // =======================
+
+  private def formatBytes(bytes: Long): String = {
+    val mb = bytes / (1024L * 1024L)
+    val gb = bytes.toDouble / (1024D * 1024D * 1024D)
+    f"$mb%d MB (~$gb%.2f GB)"
+  }
+
+  /** Retourne une string avec l'état mémoire JVM. */
+  private def currentMemoryState(): String = {
+    val rt        = Runtime.getRuntime
+    val total     = rt.totalMemory()
+    val free      = rt.freeMemory()
+    val used      = total - free
+    val max       = rt.maxMemory()
+    s"used=${formatBytes(used)}, total=${formatBytes(total)}, max=${formatBytes(max)}"
+  }
+
+  /** Log start d’un bloc et retourne le timestamp de départ. */
+  private def logStageStart(name: String): Long = {
+    val nowNs = System.nanoTime()
+    logger.info(s"[$name] START  | ${currentMemoryState()}")
+    nowNs
+  }
+
+  /** Log fin d’un bloc avec la durée écoulée depuis startNs. */
+  private def logStageEnd(name: String, startNs: Long): Unit = {
+    val elapsedMs = (System.nanoTime() - startNs) / 1e6
+    logger.info(f"[$name] END    | elapsed=${elapsedMs}%.1f ms | ${currentMemoryState()}")
+  }
+
+  /** Optionnel : état mémoire des executors (Spark) */
+  private def logExecutorMemory(spark: SparkSession, label: String): Unit = {
+    val status = spark.sparkContext.getExecutorMemoryStatus
+    val nbExec = status.size
+    val summary = status.map { case (hostPort, (maxBytes, freeBytes)) =>
+      val used = maxBytes - freeBytes
+      s"$hostPort: used=${formatBytes(used)}/max=${formatBytes(maxBytes)}"
+    }.mkString("; ")
+    logger.info(s"[$label] ExecutorMemoryStatus (n=$nbExec) -> $summary")
+  }
+
+  // =======================
+  // Fin des Helpers timing / mémoire
+  // =======================
+
+  // =======================
   // Étape 1 : BRONZE
   // =======================
   def runBronze(spark: SparkSession, paths: IOPaths, cfg: AppConfig): Unit = {
@@ -216,7 +264,12 @@ object Main {
 
   def runGold(spark: SparkSession, paths: IOPaths, cfg: AppConfig): Unit = {
     import spark.implicits._
+    import org.apache.spark.sql.functions._
+
     logger.info("=== Étape GOLD ===")
+
+    // Nombre de mois de vols (sert pour le tuning du nombre de partitions, surtout pour les targets)
+    val monthsCount = cfg.monthsF.distinct.size
 
     // --- 1) Vérif Silver (inchangé) ---
     val silverFlightsExists = Readers.exists(spark, paths.silverFlights)
@@ -236,18 +289,25 @@ object Main {
     }
 
     // --- 2) Lecture Silver & BuildJT ---
+    val tReadStart = logStageStart("GOLD_read_silver")
     logger.info("Lecture des tables SILVER (flights & weather)")
     val flightsPrepared = Readers.readDelta(spark, paths.silverFlights)
     val weatherSlimDF   = Readers.readDelta(spark, paths.silverWeatherFiltered)
+    logStageEnd("GOLD_read_silver", tReadStart)
+    logExecutorMemory(spark, "GOLD_after_read_silver")
 
+    val tEnrichStart = logStageStart("GOLD_build_JT")
     logger.info("Enrichissement des vols (FlightsEnriched)")
     val flightsEnriched = FlightsEnriched.build(flightsPrepared)
 
     logger.info("Construction de la jointure spatio-temporelle (BuildJT)")
     val jtOut = BuildJT.buildJT(flightsEnriched, weatherSlimDF, cfg.thMinutes)
+    logStageEnd("GOLD_build_JT", tEnrichStart)
+    logExecutorMemory(spark, "GOLD_after_build_JT")
 
-    // --- 3) SLIMMER : ne garder que ce qui est utilisé plus loin ---
-    // NOTE : on garde flight_key explicitement, même si présent dans F, pour simplifier
+    // --- 3) SLIMMER + write JT ---
+    val tSlimStart = logStageStart("GOLD_slim_and_write_JT")
+
     val jtSlim = jtOut.select(
       col("F"),
       col("Wo"),
@@ -260,135 +320,123 @@ object Main {
 
     logger.info("JT (slim) schema = " + jtSlim.schema.treeString)
 
-    // --- 4) Répartition contrôlée & write Delta sur JT ---
-    // On adapte le nombre de partitions au nombre de mois pour limiter la taille mémoire de chaque tâche.
-    val monthsCount      = cfg.monthsF.distinct.size
-    val numPartsForJT    = math.max(64 * monthsCount, 128)  // ex : 8 mois -> 512 partitions
-    logger.info(s"JT (slim) repartition before write : months = $monthsCount, partitions = $numPartsForJT")
-
-    val jtPartitionedSlim =
-      jtSlim.repartition(numPartsForJT, col("year"), col("month"))
+    val jtForWrite =
+      if (cfg.env == Environment.Hadoop) {
+        logger.info("Env = Hadoop : repartition JT par (year, month) avant écriture")
+        jtSlim.repartition(col("year"), col("month"))
+      } else {
+        logger.info("Env = Local : pas de repartition explicite, on laisse AQE gérer")
+        jtSlim
+      }
 
     logger.info("Écriture de la table GOLD (Joint Table)")
+    val tWriteJT = logStageStart("GOLD_write_JT_only")
+
     Writers.writeDelta(
-      jtPartitionedSlim,
+      jtForWrite,
       paths.goldJT,
       Seq("year", "month"),
       overwriteSchema = true
     )
+
+    logStageEnd("GOLD_write_JT_only", tWriteJT)
+
     logger.info(s"Table GOLD écrite : ${paths.goldJT}")
+    logStageEnd("GOLD_slim_and_write_JT", tSlimStart)
+    logExecutorMemory(spark, "GOLD_after_write_JT")
 
     // --- 5) Choix de la source pour la suite ---
-    // En Local : on relit pour vérifier le write
-    // En Hadoop : on évite une relecture, on réutilise jtPartitionedSlim
-    val jtForTargets =
-      if (cfg.env == Environment.Local) {
-        logger.info("Env = Local : relecture de JT depuis Delta pour vérification")
-        Readers.readDelta(spark, paths.goldJT)
-      } else {
-        logger.info("Env = Hadoop : réutilisation de JT en mémoire pour les targets (pas de relecture)")
-        jtPartitionedSlim
-      }
-
-    // --- 6) Sanity checks : uniquement en Local ---
-    if (cfg.env == Environment.Local) {
-      val jtCheck = jtForTargets
-
-      logger.info(s"JT rows = ${jtCheck.count}")
-      logger.info(
-        s"JT distinct flight_key = ${jtCheck.select($"flight_key").distinct.count}"
-      )
-
-      jtCheck
-        .agg(
-          sum(when(col("F.dep_ts_utc").isNull, 1).otherwise(0)).as("null_dep"),
-          sum(when(col("F.arr_ts_utc").isNull, 1).otherwise(0)).as("null_arr"),
-          count(lit(1)).as("total")
-        )
-        .show(false)
-
-      val withFlags = jtCheck
-        .withColumn("hasWo", size($"Wo") > 0)
-        .withColumn("hasWd", size($"Wd") > 0)
-
-      withFlags
-        .agg(
-          avg(when($"hasWo", lit(1)).otherwise(lit(0))).as("pct_with_Wo"),
-          avg(when($"hasWd", lit(1)).otherwise(lit(0))).as("pct_with_Wd")
-        )
-        .show(false)
-
-      jtCheck
-        .select(
-          $"F.carrier",
-          $"F.flnum",
-          $"F.date",
-          $"F.origin_airport_id",
-          $"F.dest_airport_id",
-          $"C",
-          size($"Wo").as("nWo"),
-          size($"Wd").as("nWd")
-        )
-        .orderBy(desc("nWo"))
-        .show(10, false)
-
-      jtCheck
-        .select(
-          col("F.arr_delay_new"),
-          col("F.weather_delay"),
-          col("F.nas_delay"),
-          col("F.nas_weather_delay")
-        )
-        .show(5, truncate = false)
+    val tLoadJTStart = logStageStart("GOLD_load_JT_for_targets")
+    val jtForTargets = {
+      logger.info("Relecture de JT depuis Delta pour la génération des targets (Local & Hadoop)")
+      Readers.readDelta(spark, paths.goldJT)
     }
 
-    // --- 7) Génération des targets (D1..D4 x Th) ---
+    logStageEnd("GOLD_load_JT_for_targets", tLoadJTStart)
+    logExecutorMemory(spark, "GOLD_after_load_JT_for_targets")
+
+    // --- 6) Sanity checks (Local) ---
+    if (cfg.env == Environment.Local) {
+      val tSanity = logStageStart("GOLD_sanity_checks")
+      val jtCheck = jtForTargets
+      // (Si tu as des checks, tu peux les remettre ici)
+      logStageEnd("GOLD_sanity_checks", tSanity)
+    }
+
+    // --- 7) Génération des targets (clé + matérialisation) ---
     val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
     val tau      = 0.95
     val ths      = Seq(15, 30, 45, 60, 90)
 
+    val tKeysStart = logStageStart("GOLD_build_keys")
     logger.info(s"TargetBatch.buildKeysForThresholds sur ths=$ths, tau=$tau")
+
+    // On garde la logique d’origine : D1..D4 × tous les seuils
     val keysAll =
       TargetBatch.buildKeysForThresholds(jtForTargets, ths, tau, sampleSeed = 1234L)
 
+    logStageEnd("GOLD_build_keys", tKeysStart)
+    logExecutorMemory(spark, "GOLD_after_build_keys")
+
+    val tMatStart = logStageStart("GOLD_materialize_all")
     logger.info("TargetBatch.materializeAll (ré-attache Wo/Wd/F) en cours...")
+
     val fullAll =
       TargetBatch.materializeAll(jtForTargets, keysAll, includeLightCols = true)
 
-    // Sélection des colonnes pour la table finale des targets
+    // ⚠️ Important : on reconstruit year/month à partir de F.date
+    // pour éviter tout conflit de colonnes et garder un partitionnement logique.
     val targetsDfBase = fullAll.select(
       col("F"),
       col("Wo"),
       col("Wd"),
       col("C"),
       col("flight_key"),
-      col("year"),
-      col("month"),
+      year(col("F.date")).as("year"),
+      date_format(col("F.date"), "yyyyMM").as("month"),
       col("ds"),
       col("th"),
       col("is_pos")
     )
 
-    // Pour l'écriture des targets, on repartitionne aussi pour éviter des partitions monstrueuses
-    val numPartsTargets = math.max(32 * monthsCount, 128)  // un peu moins agressif que JT
-    logger.info(s"Targets repartition before write : months = $monthsCount, partitions = $numPartsTargets")
+    logStageEnd("GOLD_materialize_all", tMatStart)
+    logExecutorMemory(spark, "GOLD_after_materialize_all")
 
-    val targetsPartitioned =
-      targetsDfBase.repartition(numPartsTargets, col("ds"), col("th"), col("year"), col("month"))
-
+    // --- 8) Écriture des targets (Delta) ---
+    val tWriteTargetsStart = logStageStart("GOLD_write_targets")
     val outRoot = s"$goldBase/targets"
 
+    val targetsForWrite =
+      cfg.env match {
+        case Environment.Hadoop =>
+          logger.info(
+            "Env = Hadoop : repartition targets par (ds, th, year, month) " +
+              "avec le nombre de partitions par défaut (spark.sql.shuffle.partitions)"
+          )
+          // On laisse Spark/AQE décider du nombre de partitions
+          targetsDfBase.repartition(col("ds"), col("th"), col("year"), col("month"))
+
+        case _ =>
+          logger.info(
+            "Env = Local : écriture des targets sans repartition explicite (AQE)"
+          )
+          targetsDfBase.coalesce(8)
+      }
+
     Writers.writeDelta(
-      targetsPartitioned,
+      targetsForWrite,
       outRoot,
       Seq("ds", "th", "year", "month"),
       overwriteSchema = true
     )
 
     logger.info("Étape Gold terminée avec succès.")
+    logStageEnd("GOLD_write_targets", tWriteTargetsStart)
+    logExecutorMemory(spark, "GOLD_after_write_targets")
 
-    // --- 8) Inspection détaillée uniquement en Local ---
+    // --- 9) Inspection détaillée en Local ---
     if (cfg.env == Environment.Local) {
+      val tInspect = logStageStart("GOLD_targets_inspection")
       val targetsPath = outRoot
       TargetsInspection.inspectSlice(
         spark,
@@ -397,11 +445,9 @@ object Main {
         thValue = 60,
         n = 20
       )
+      logStageEnd("GOLD_targets_inspection", tInspect)
     }
   }
-
-
-
 
 
   // =======================
