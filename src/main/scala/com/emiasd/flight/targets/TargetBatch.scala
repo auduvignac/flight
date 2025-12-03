@@ -19,7 +19,7 @@ object TargetBatch {
         th,
         tau,
         sampleSeed = sampleSeed,
-        persistLevel = org.apache.spark.storage.StorageLevel.MEMORY_AND_DISK
+        persistLevel = org.apache.spark.storage.StorageLevel.MEMORY_ONLY
       )
       m.map { case (name, df) =>
         df.withColumn("ds", lit(name))
@@ -29,7 +29,7 @@ object TargetBatch {
     }
     parts
       .reduce(_.unionByName(_))
-      .persist(org.apache.spark.storage.StorageLevel.MEMORY_AND_DISK)
+      .persist(org.apache.spark.storage.StorageLevel.MEMORY_ONLY)
   }
 
   /**
