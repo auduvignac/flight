@@ -1,9 +1,9 @@
-// com/emiasd/flight/targets/TargetBatch.scala
 package com.emiasd.flight.targets
 
 import com.emiasd.flight.util.SparkSchemaUtils.hasPath
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
+import org.apache.spark.storage.StorageLevel
 
 object TargetBatch {
 
@@ -19,7 +19,8 @@ object TargetBatch {
         th,
         tau,
         sampleSeed = sampleSeed,
-        persistLevel = org.apache.spark.storage.StorageLevel.MEMORY_ONLY
+        // IMPORTANT : MEMORY_AND_DISK pour éviter les recalculs massifs
+        persistLevel = StorageLevel.MEMORY_AND_DISK
       )
       m.map { case (name, df) =>
         df.withColumn("ds", lit(name))
@@ -27,9 +28,11 @@ object TargetBatch {
           .select("flight_key", "ds", "th", "is_pos", "C")
       }.reduce(_.unionByName(_))
     }
+
     parts
       .reduce(_.unionByName(_))
-      .persist(org.apache.spark.storage.StorageLevel.MEMORY_ONLY)
+      // Idem : on accepte le spill disque plutôt que de recalculer le DAG
+      .persist(StorageLevel.MEMORY_AND_DISK)
   }
 
   /**
