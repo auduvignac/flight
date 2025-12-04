@@ -824,7 +824,17 @@ object Main {
 
       b.getOrCreate()
     }
-    registerSparkProgressLogger(spark)
+    val progressLoggerEnabled =
+      cfg.debug || spark.conf
+        .getOption("spark.flight.progressLogger.enabled")
+        .exists(_.toBoolean)
+    if (progressLoggerEnabled) {
+      registerSparkProgressLogger(spark)
+    } else {
+      logger.info(
+        "[SparkStage] Progress logger disabled (enable with --debug or spark.flight.progressLogger.enabled=true)"
+      )
+    }
 
     val paths = PathResolver.resolve(cfg)
     val conf  = spark.sparkContext.getConf
