@@ -41,6 +41,56 @@ object Main {
   final case class GoldData(targets: DataFrame)
 
   // =======================
+  // Helpers timing / mémoire
+  // =======================
+
+  private def formatBytes(bytes: Long): String = {
+    val mb = bytes / (1024L * 1024L)
+    val gb = bytes.toDouble / (1024d * 1024d * 1024d)
+    f"$mb%d MB (~$gb%.2f GB)"
+  }
+
+  /** Retourne une string avec l'état mémoire JVM. */
+  private def currentMemoryState(): String = {
+    val rt    = Runtime.getRuntime
+    val total = rt.totalMemory()
+    val free  = rt.freeMemory()
+    val used  = total - free
+    val max   = rt.maxMemory()
+    s"used=${formatBytes(used)}, total=${formatBytes(total)}, max=${formatBytes(max)}"
+  }
+
+  /** Log start d’un bloc et retourne le timestamp de départ. */
+  private def logStageStart(name: String): Long = {
+    val nowNs = System.nanoTime()
+    logger.info(s"[$name] START  | ${currentMemoryState()}")
+    nowNs
+  }
+
+  /** Log fin d’un bloc avec la durée écoulée depuis startNs. */
+  private def logStageEnd(name: String, startNs: Long): Unit = {
+    val elapsedMs = (System.nanoTime() - startNs) / 1e6
+    logger.info(
+      f"[$name] END    | elapsed=${elapsedMs}%.1f ms | ${currentMemoryState()}"
+    )
+  }
+
+  /** Optionnel : état mémoire des executors (Spark) */
+  private def logExecutorMemory(spark: SparkSession, label: String): Unit = {
+    val status = spark.sparkContext.getExecutorMemoryStatus
+    val nbExec = status.size
+    val summary = status.map { case (hostPort, (maxBytes, freeBytes)) =>
+      val used = maxBytes - freeBytes
+      s"$hostPort: used=${formatBytes(used)}/max=${formatBytes(maxBytes)}"
+    }.mkString("; ")
+    logger.info(s"[$label] ExecutorMemoryStatus (n=$nbExec) -> $summary")
+  }
+
+  // =======================
+  // Fin des Helpers timing / mémoire
+  // =======================
+
+  // =======================
   // Étape 1 : BRONZE
   // =======================
   def runBronze(
