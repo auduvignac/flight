@@ -436,7 +436,7 @@ object Main {
       logger.info("Mode debug désactivé — inspection des targets ignorée.")
     }
 
-    logger.info("Étape Gold (hybride optimisée) terminée.")
+    logger.info("Étape Gold avec succès.")
     GoldData(targetsDf)
   }
 
