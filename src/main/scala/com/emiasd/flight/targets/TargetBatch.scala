@@ -1,25 +1,26 @@
-// com/emiasd/flight/targets/TargetBatch.scala
 package com.emiasd.flight.targets
 
 import com.emiasd.flight.util.SparkSchemaUtils.hasPath
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.functions._
+import org.apache.spark.storage.StorageLevel
 
 object TargetBatch {
 
   def buildKeysForThresholds(
-    jt: DataFrame,
-    ths: Seq[Int],
-    tau: Double,
-    sampleSeed: Long = 42L
-  ): DataFrame = {
+                              jt: DataFrame,
+                              ths: Seq[Int],
+                              tau: Double,
+                              sampleSeed: Long = 42L
+                            ): DataFrame = {
     val parts = ths.map { th =>
       val m = TargetBuilder.buildKeysOnly(
         jt,
         th,
         tau,
         sampleSeed = sampleSeed,
-        persistLevel = org.apache.spark.storage.StorageLevel.MEMORY_ONLY
+        // IMPORTANT : MEMORY_AND_DISK pour éviter les recalculs massifs
+        persistLevel = StorageLevel.MEMORY_AND_DISK
       )
       m.map { case (name, df) =>
         df.withColumn("ds", lit(name))
@@ -27,9 +28,11 @@ object TargetBatch {
           .select("flight_key", "ds", "th", "is_pos", "C")
       }.reduce(_.unionByName(_))
     }
+
     parts
       .reduce(_.unionByName(_))
-      .persist(org.apache.spark.storage.StorageLevel.MEMORY_ONLY)
+      // Idem : on accepte le spill disque plutôt que de recalculer le DAG
+      .persist(StorageLevel.MEMORY_AND_DISK)
   }
 
   /**
@@ -37,10 +40,10 @@ object TargetBatch {
    * broadcast(keysAll).
    */
   def materializeAll(
-    jt: DataFrame,
-    keysAll: DataFrame,
-    includeLightCols: Boolean = true
-  ): DataFrame = {
+                      jt: DataFrame,
+                      keysAll: DataFrame,
+                      includeLightCols: Boolean = true
+                    ): DataFrame = {
 
     // Ajoute une colonne "flight_key" de façon SAFE (sans référencer une colonne absente)
     // A REVOIR POUR SIMPLIFIER SCHEMA JT AVEC LOCALISATION DE FLIGHT_KEY
@@ -71,3 +74,4 @@ object TargetBatch {
     )
   }
 }
+

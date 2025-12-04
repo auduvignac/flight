@@ -261,20 +261,22 @@ object Main {
   }
 
   // =======================
-  // Étape 3 : GOLD
+  // Étape 3 : GOLD (version hybride optimisée)
   // =======================
   def runGold(
-    spark: SparkSession,
-    paths: IOPaths,
-    cfg: AppConfig,
-    debug: Boolean,
-    persist: Boolean,
-    silverData: Option[SilverData] = None
-  ): GoldData = {
+               spark: SparkSession,
+               paths: IOPaths,
+               cfg: AppConfig,
+               debug: Boolean,
+               persist: Boolean,
+               silverData: Option[SilverData] = None
+             ): GoldData = {
 
-    logger.info("=== Étape GOLD ===")
+    logger.info("=== Étape GOLD (hybride optimisée, une seule JT) ===")
 
-    // Résolution des tables Silver
+    // -----------------------------
+    // 1) Résolution des tables Silver
+    // -----------------------------
     val resolvedSilver: SilverData =
       silverData.getOrElse {
         val flightsExists = Readers.exists(spark, paths.silverFlights)
@@ -316,108 +318,86 @@ object Main {
     val flightsPrepared = resolvedSilver.flights
     val weatherSlimDF   = resolvedSilver.weatherSlim
 
-    // Enrichissement Flights
+    // -----------------------------
+    // 2) Enrichissement Flights
+    // -----------------------------
     logger.info("Enrichissement des vols (FlightsEnriched)")
     val flightsEnriched = FlightsEnriched.build(flightsPrepared)
 
-    // 3. Construction des JT (une par seuil)
+    // -----------------------------
+    // 3) Construction d'une seule JT de référence
+    // -----------------------------
+
+    // Liste des thresholds à utiliser pour les targets (comme en ADR)
     val thresholds: Seq[Int] = cfg.th match {
       case Some(th) => Seq(th)
       case None     => Seq(15, 30, 45, 60, 90)
     }
 
-    val goldBase = paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
+    // Seuil de référence pour le label C dans JT (comportement ADR : head)
+    val thRef = thresholds.head
+
+    val goldBase =
+      paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
 
     logger.info("Construction de la base JT (BuildJT.buildJTBase)")
     val jtBase = BuildJT.buildJTBase(flightsEnriched, weatherSlimDF)
 
-    // Si plusieurs seuils, la base est réutilisée => on la cache
-    val jtBaseCached: DataFrame =
-      if (thresholds.size > 1) {
+    logger.info(s"Ajout du label C dans JT pour le seuil de référence th=$thRef")
+    val jtLabeled = BuildJT.attachLabel(jtBase, thRef)
+
+    // Matérialisation de la JT de référence selon persist
+    val jtRef: DataFrame =
+      if (!persist) {
         logger.info(
-          s"Cache de jtBase (plusieurs thresholds: ${thresholds.mkString(",")})"
+          "Persist désactivé — matérialisation de la JT de référence en cache (MEMORY_AND_DISK)."
         )
-        jtBase.persist(StorageLevel.MEMORY_ONLY)
+        val df = jtLabeled.persist(StorageLevel.MEMORY_AND_DISK)
+        df.count() // coupe le DAG ici
+        df
       } else {
-        jtBase
+        // Mode persist=true : on laisse writeDelta faire l'action
+        jtLabeled
       }
 
-    // Contiendra les JT matérialisées en mémoire
-    val jtResults = scala.collection.mutable.Map[Int, DataFrame]()
-
-    thresholds.foreach { th =>
-      logger.info(s"=== Construction JT_th$th ===")
-
-      val jt = BuildJT.attachLabel(jtBaseCached, th)
-
-      // Matérialisation différente selon persist (app)
-      val jtMat: DataFrame =
-        if (!persist) {
-          // Mode in-memory : on matérialise vraiment pour éviter le recalcul ultérieur
-          val df = jt.persist(StorageLevel.MEMORY_ONLY)
-          logger.info(s"Matérialisation JT_th$th en mémoire (persist=false)")
-          df.count() // action explicite
-          df
-        } else {
-          // Mode persist=true : pas de count ici, writeDelta fera déjà une action
-          jt
-        }
-
-      jtResults += th -> jtMat
-
+    // -----------------------------
+    // 4) Écriture (optionnelle) de JT
+    // -----------------------------
+    val jtForTargets: DataFrame =
       if (persist) {
-        val out = s"$goldBase/JT_th$th"
+        logger.info(s"Écriture de la JT de référence en Delta : ${paths.goldJT}")
 
+        // IMPORTANT : en local on NE coalesce PLUS JT
         val jtForWrite =
-          if (thresholds.size == 1)
-            jtMat.coalesce(
-              spark.conf
-                .getOption("flight.gold.single.coalesce")
-                .map(_.toInt)
-                .getOrElse(8)
+          if (cfg.env == Environment.Hadoop) {
+            logger.info("Env = Hadoop : repartition JT par (year, month) avant écriture")
+            jtRef.repartition(col("year"), col("month"))
+          } else {
+            logger.info(
+              "Env = Local : pas de repartition explicite sur JT (on laisse AQE décider)."
             )
-          else jtMat
+            jtRef
+          }
 
-        logger.info(s"Écriture JT_th$th en Delta : $out")
         Writers.writeDelta(
           jtForWrite,
-          out,
+          paths.goldJT,
           Seq("year", "month"),
           overwriteSchema = true
         )
-      }
 
-      if (debug) {
-        logger.info(s"Debug JT_th$th (show)")
-        jtMat.show(5, truncate = false)
-      }
-    }
-
-    // jtBaseCached n'est plus utile à partir d'ici
-    if (thresholds.size > 1) {
-      logger.info("Libération du cache de jtBaseCached")
-      jtBaseCached.unpersist()
-    }
-
-    // 4. Génération des targets
-    // On part de la JT du premier seuil comme référence
-    logger.info("Préparation de la JT de référence pour les targets")
-    val jtCheckBase: DataFrame = jtResults(thresholds.head)
-
-    val jtCheck: DataFrame =
-      if (persist) {
-        // En mode persist=true, on a déjà exécuté un job pour writeDelta,
-        // mais TargetBatch va faire plusieurs actions.
-        // On persiste ici pour éviter de recalculer tout le DAG à chaque fois.
-        logger.info("Cache de jtCheck pour TargetBatch (persist=true)")
-        val df = jtCheckBase.persist(StorageLevel.MEMORY_ONLY)
-        df.count() // matérialisation réelle
-        df
+        logger.info("Relecture de la JT depuis Delta pour la génération des targets")
+        Readers.readDelta(spark, paths.goldJT)
       } else {
-        // En mode persist=false, jtResults(th) est déjà matérialisé dans la boucle
-        jtCheckBase
+        logger.info(
+          "Persist désactivé — aucune écriture de JT en Delta, utilisation directe en mémoire."
+        )
+        jtRef
       }
 
+    // -----------------------------
+    // 5) Génération des keys & targets (TargetBatch)
+    // -----------------------------
     val tau = 0.95
 
     logger.info(
@@ -425,7 +405,7 @@ object Main {
     )
     val keysAll =
       TargetBatch.buildKeysForThresholds(
-        jtCheck,
+        jtForTargets,
         thresholds,
         tau,
         sampleSeed = 1234L
@@ -435,7 +415,11 @@ object Main {
       "Matérialisation complète des targets (TargetBatch.materializeAll)"
     )
     val fullAll =
-      TargetBatch.materializeAll(jtCheck, keysAll, includeLightCols = true)
+      TargetBatch.materializeAll(
+        jtForTargets,
+        keysAll,
+        includeLightCols = true
+      )
 
     logger.info("Sélection des colonnes finales pour targetsDf")
     val targetsDfRaw = fullAll.select(
@@ -454,22 +438,24 @@ object Main {
     // Matérialisation des targets en mode in-memory
     val targetsDf: DataFrame =
       if (!persist) {
-        logger.info("Cache de targetsDf en mémoire (persist=false)")
-        val df = targetsDfRaw.persist(StorageLevel.MEMORY_ONLY)
+        logger.info("Cache de targetsDf en mémoire (MEMORY_AND_DISK, persist=false)")
+        val df = targetsDfRaw.persist(StorageLevel.MEMORY_AND_DISK)
         df.count() // coupe le DAG ici
         df
       } else {
         targetsDfRaw
       }
 
-    // Écriture des targets en Delta
+    // -----------------------------
+    // 6) Écriture (optionnelle) des targets
+    // -----------------------------
     if (persist) {
       val out = s"$goldBase/targets"
 
       val targetsPartitioned =
         if (
           targetsDf.columns.contains("year") &&
-          targetsDf.columns.contains("month")
+            targetsDf.columns.contains("month")
         )
           targetsDf.repartition(col("ds"), col("th"), col("year"), col("month"))
         else
@@ -482,9 +468,13 @@ object Main {
         Seq("ds", "th", "year", "month"),
         overwriteSchema = true
       )
+    } else {
+      logger.info("Persist désactivé — aucune écriture de targets en Delta.")
     }
 
-    // Debug / inspection
+    // -----------------------------
+    // 7) Debug / inspection
+    // -----------------------------
     if (debug) {
       logger.info(
         "Inspection d'un slice de targets (TargetsInspection.inspectSlice)"
@@ -500,9 +490,10 @@ object Main {
       logger.info("Mode debug désactivé — inspection des targets ignorée.")
     }
 
-    logger.info("Étape Gold terminée.")
+    logger.info("Étape Gold (hybride optimisée) terminée.")
     GoldData(targetsDf)
   }
+
 
   // =======================
   // Étape 4 : DIAGNOSTICS
