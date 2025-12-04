@@ -10,81 +10,124 @@ import java.sql.Timestamp
 
 object BuildJT {
 
-  private def hourlyArrayClosest(
-    fBase: DataFrame,
-    wxPrefixed: DataFrame,
-    airportColInF: String,
-    tsColInF: String,
-    prefix: String,
+  // ============================================================
+  // 1) Pré-agrégation météo : 1 observation par (airport_id, heure)
+  // ============================================================
+  private def buildWeatherPerHour(
+    weatherSlim: DataFrame,
     toleranceMin: Int
   ): DataFrame = {
 
-    // 1) Grille horaire: 13 timestamps cibles [ts-12h .. ts] pas 1h
-    val targetsColName = s"${prefix}_targets"
-    val targetColName  = s"${prefix}_target"
+    val tolSeconds = toleranceMin * 60
 
+    // On bucketise les observations à l'heure la plus proche
+    val wxWithHour = weatherSlim
+      .withColumn("obs_hour", date_trunc("HOUR", col("obs_utc")))
+      .withColumn(
+        "abs_diff_sec",
+        abs(col("obs_utc").cast("long") - col("obs_hour").cast("long"))
+      )
+
+    // Pour chaque (airport_id, obs_hour) on garde l'observation la plus proche
+    val w = Window
+      .partitionBy(col("airport_id"), col("obs_hour"))
+      .orderBy(col("abs_diff_sec").asc)
+
+    val wxHourly = wxWithHour
+      .withColumn("rn", row_number().over(w))
+      .filter(col("rn") === 1 && col("abs_diff_sec") <= lit(tolSeconds))
+      .drop("rn", "abs_diff_sec")
+      // Layout optimisé pour les joins suivants
+      .repartition(col("airport_id"))
+      .sortWithinPartitions(col("airport_id"), col("obs_hour"))
+      .persist(StorageLevel.MEMORY_AND_DISK)
+
+    wxHourly
+  }
+
+  // ============================================================
+  // 2) Attache une timeline météo horaire (13 points) à un DF de vols
+  //    -> produit Wo ou Wd sous forme d'array<struct>
+  // ============================================================
+  private def attachWeatherTimeline(
+    fBase: DataFrame,
+    wxHourly: DataFrame,
+    airportColInF: String,
+    tsColInF: String,
+    prefix: String
+  ): DataFrame = {
+
+    val targetsColName = s"${prefix}_target_hours"
+    val targetColName  = s"${prefix}_target_hour"
+
+    // Grille de 13 heures : [ts_hour - 12h, ..., ts_hour]
     val fWithGrid = fBase
       .withColumn(
         targetsColName,
         sequence(
-          col(tsColInF) - expr("INTERVAL 12 HOURS"),
-          col(tsColInF),
+          date_trunc("HOUR", col(tsColInF)) - expr("INTERVAL 12 HOURS"),
+          date_trunc("HOUR", col(tsColInF)),
           expr("INTERVAL 1 HOURS")
         )
       )
       .withColumn(targetColName, explode(col(targetsColName)))
-      .drop(col(targetsColName))
+      .drop(targetsColName)
 
-    // 2) Candidats météo dans la tolérance ±toleranceMin
-    val joined = fWithGrid.join(
-      wxPrefixed,
-      col(airportColInF) === col(s"${prefix}_airport_id") &&
-        col("obs_utc").between(
-          col(s"${prefix}_target") - expr(s"INTERVAL ${toleranceMin} MINUTES"),
-          col(s"${prefix}_target") + expr(s"INTERVAL ${toleranceMin} MINUTES")
-        ),
+    // On alias les deux côtés pour éviter toute ambiguïté (year, month, etc.)
+    val fAliased  = fWithGrid.alias("f")
+    val wxAliased = wxHourly.alias("w")
+
+    // Join en égalité (beaucoup plus léger que BETWEEN + Window)
+    val joined = fAliased.join(
+      wxAliased,
+      col(s"f.$airportColInF") === col("w.airport_id") &&
+        col(s"f.$targetColName") === col("w.obs_hour"),
       "left"
     )
 
-    // 3) Garder l'observation la plus proche pour chaque (vol, heure cible)
-    val partCols: Seq[Column] =
-      fBase.columns.map(col) :+ col(s"${prefix}_target")
-    val w = Window
-      .partitionBy(partCols: _*)
-      .orderBy(
-        abs(col("obs_utc").cast("long") - col(s"${prefix}_target").cast("long"))
-      )
-
     val pointCol = s"${prefix}_point"
-    val best = joined
-      .withColumn("rn", row_number().over(w))
-      .filter(col("rn") === 1)
-      .select(
-        (fBase.columns.map(col) :+
-          struct(
-            col(s"${prefix}_target").as(s"${prefix}_ts"),
-            col("SkyCondition").as(s"${prefix}_sky"),
-            col("WeatherType").as(s"${prefix}_wxType"),
-            col("Visibility").cast("double").as(s"${prefix}_vis"),
-            col("TempC").cast("double").as(s"${prefix}_tempC"),
-            col("DewPointC").cast("double").as(s"${prefix}_dewC"),
-            col("RelativeHumidity").cast("double").as(s"${prefix}_rh"),
-            col("WindSpeedKt").cast("double").as(s"${prefix}_windKt"),
-            col("WindDirection").cast("double").as(s"${prefix}_windDir"),
-            col("Altimeter").cast("double").as(s"${prefix}_altim"),
-            col("SeaLevelPressure").cast("double").as(s"${prefix}_slp"),
-            col("StationPressure").cast("double").as(s"${prefix}_stnp"),
-            col("HourlyPrecip").cast("double").as(s"${prefix}_precip")
-          ).as(pointCol)): _*
-      )
 
-    // 4) Recomposer l'array trié (ts, ts-1h, ..., ts-12h)
+    // Colonnes de base du vol (sans suffixe, on ne garde que celles de fBase)
+    val baseCols: Seq[Column] =
+      fBase.columns.map(c => col(s"f.$c").as(c))
+
+    // On construit un "point" météo pour chaque (vol, heure cible)
+    val withPoint = joined.select(
+      (baseCols :+
+        struct(
+          col(s"f.$targetColName").as(s"${prefix}_ts"),
+          col("w.SkyCondition").as(s"${prefix}_sky"),
+          col("w.WeatherType").as(s"${prefix}_wxType"),
+          col("w.Visibility").cast("double").as(s"${prefix}_vis"),
+          col("w.TempC").cast("double").as(s"${prefix}_tempC"),
+          col("w.DewPointC").cast("double").as(s"${prefix}_dewC"),
+          col("w.RelativeHumidity").cast("double").as(s"${prefix}_rh"),
+          col("w.WindSpeedKt").cast("double").as(s"${prefix}_windKt"),
+          col("w.WindDirection").cast("double").as(s"${prefix}_windDir"),
+          col("w.Altimeter").cast("double").as(s"${prefix}_altim"),
+          col("w.SeaLevelPressure").cast("double").as(s"${prefix}_slp"),
+          col("w.StationPressure").cast("double").as(s"${prefix}_stnp"),
+          col("w.HourlyPrecip").cast("double").as(s"${prefix}_precip")
+        ).as(pointCol)): _*
+    )
+
+    // Recomposition de l'array : (ts, ts-1h, ..., ts-12h)
     val outCol = if (prefix == "o") "Wo" else "Wd"
-    best
+
+    withPoint
       .groupBy(fBase.columns.map(col): _*)
-      .agg(sort_array(collect_list(col(pointCol)), asc = false).as(outCol))
+      .agg(
+        sort_array(
+          collect_list(col(pointCol)),
+          asc = false // ts, ts-1h, ..., ts-12h
+        ).as(outCol)
+      )
   }
 
+  // ============================================================
+  // 3) buildJT : façade simple (utilisée par JM)
+  //    -> conserve la signature existante
+  // ============================================================
   def buildJT(
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
@@ -95,15 +138,17 @@ object BuildJT {
     attachLabel(base, thMinutes)
   }
 
-  /**
-   * Pipeline commun vols/météo sans application du seuil. Optimisations pour un
-   * run unique : filtre temporel météo et pruning de colonnes.
-   */
+  // ============================================================
+  // 4) buildJTBase : pipeline commun vols/météo SANS seuil
+  //    Version JM + pruning temporel ADR
+  // ============================================================
   def buildJTBase(
     flightsEnriched: DataFrame,
     weatherSlim: DataFrame,
     toleranceMin: Int = 20
   ): DataFrame = {
+
+    // 4.1 Filtre des vols avec timestamps complets + bornes temporelles
     val fWithBounds = flightsEnriched
       .filter(col("dep_ts_utc").isNotNull && col("arr_ts_utc").isNotNull)
       .withColumn(
@@ -131,6 +176,7 @@ object BuildJT {
         } yield (min, max)
       }
 
+    // On enlève les colonnes auxiliaires et on réduit aux colonnes nécessaires
     val f = fWithBounds
       .drop("dep_minus_12h", "arr_plus_12h")
       .select(
@@ -151,85 +197,47 @@ object BuildJT {
         col("month")
       )
 
+    // 4.2 Pruning temporel de la météo (optim ADR conservée)
     val weatherPruned = boundsOpt.map { case (minTs, maxTs) =>
       weatherSlim.filter(col("obs_utc").between(lit(minTs), lit(maxTs)))
     }
       .getOrElse(weatherSlim)
 
-    // ========= OPTIMS MÉTÉO =========
-    val wxBase = weatherPruned
-      .repartition(col("airport_id"))
-      .sortWithinPartitions(col("airport_id"), col("obs_utc"))
-      .persist(StorageLevel.MEMORY_ONLY)
+    // 4.3 Pré-agrégation météo compacte (algo JM)
+    val wxHourly = buildWeatherPerHour(weatherPruned, toleranceMin)
 
-    val wxOrigin = wxBase.select(
-      col("airport_id").as("o_airport_id"),
-      col("obs_utc"),
-      col("SkyCondition"),
-      col("WeatherType"),
-      col("Visibility"),
-      col("TempC"),
-      col("DewPointC"),
-      col("RelativeHumidity"),
-      col("WindSpeedKt"),
-      col("WindDirection"),
-      col("Altimeter"),
-      col("SeaLevelPressure"),
-      col("StationPressure"),
-      col("HourlyPrecip")
-    )
-
-    val wxDest = wxBase.select(
-      col("airport_id").as("d_airport_id"),
-      col("obs_utc"),
-      col("SkyCondition"),
-      col("WeatherType"),
-      col("Visibility"),
-      col("TempC"),
-      col("DewPointC"),
-      col("RelativeHumidity"),
-      col("WindSpeedKt"),
-      col("WindDirection"),
-      col("Altimeter"),
-      col("SeaLevelPressure"),
-      col("StationPressure"),
-      col("HourlyPrecip")
-    )
-
-    // Répartition pour limiter le shuffle
+    // 4.4 Origine : Wo
     val fForO = f.repartition(col("origin_airport_id"))
 
-    // ========= ORIGINE : Wo (closest hourly) =========
-    val withWo = hourlyArrayClosest(
+    val withWo = attachWeatherTimeline(
       fForO,
-      wxOrigin.withColumnRenamed("o_airport_id", "o_airport_id"),
+      wxHourly,
       airportColInF = "origin_airport_id",
       tsColInF = "dep_ts_utc",
-      prefix = "o",
-      toleranceMin = toleranceMin
+      prefix = "o"
     )
 
+    // 4.5 Destination : Wd
     val fForD = withWo.repartition(col("dest_airport_id"))
 
-    // ========= DESTINATION : Wd (closest hourly) =========
-    val withWd = hourlyArrayClosest(
+    val withWd = attachWeatherTimeline(
       fForD,
-      wxDest.withColumnRenamed("d_airport_id", "d_airport_id"),
+      wxHourly,
       airportColInF = "dest_airport_id",
       tsColInF = "arr_ts_utc",
-      prefix = "d",
-      toleranceMin = toleranceMin
+      prefix = "d"
     )
 
-    wxBase.unpersist()
+    // 4.6 On peut libérer la météo agrégée à ce stade
+    wxHourly.unpersist()
 
     withWd
   }
 
-  /**
-   * Applique le seuil de retard et recompose la sortie finale (F/Wo/Wd/C).
-   * Séparé pour pouvoir réutiliser le résultat de buildJTBase sur plusieurs th.
-   */
+  // ============================================================
+  // 5) attachLabel : applique le seuil de retard + struct F
+  //    Signature et schéma identiques à ta version ADR actuelle
+  // ============================================================
   def attachLabel(jtBase: DataFrame, thMinutes: Int): DataFrame = {
     val withC = jtBase.withColumn(
       "C",
