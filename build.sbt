@@ -28,6 +28,14 @@ libraryDependencies ++= Seq(
 Compile / mainClass := Some("com.emiasd.flight.Main")
 
 // =======================================
+// Exclure le dossier optimization-jt de la compilation
+// =======================================
+Compile / sources := (Compile / sources).value.filterNot { f =>
+  val p = f.getPath.replace('\\', '/')
+  p.contains("/optimization-jt/")
+}
+
+// =======================================
 // Assembly configuration
 // =======================================
 assembly / mainClass := Some("com.emiasd.flight.Main")
