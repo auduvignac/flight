@@ -231,7 +231,6 @@ object Main {
         val weatherExists = Readers.exists(spark, paths.silverWeatherFiltered)
 
         if (persist) {
-          // Persist => lecture ou recalcul si absent
           if (!flightsExists || !weatherExists) {
             logger.warn(
               "Tables Silver absentes — recalcul complet (persist=true)."
@@ -245,7 +244,6 @@ object Main {
             )
           }
         } else {
-          // Persist=false => lecture si présent, sinon recalcul
           if (!flightsExists || !weatherExists) {
             logger.warn(
               "Tables Silver absentes — recalcul en mémoire (persist=false)."
@@ -270,20 +268,17 @@ object Main {
     logger.info("Enrichissement des vols (FlightsEnriched)")
     val flightsEnriched = FlightsEnriched.build(flightsPrepared)
 
-    // Construction d'une seule JT
-
-    // Liste des thresholds à utiliser pour les targets
+    // Liste des thresholds
     val thresholds: Seq[Int] = cfg.th match {
       case Some(th) => Seq(th)
       case None     => Seq(15, 30, 45, 60, 90)
     }
-
-    // Seuil de référence pour le label C dans JT
     val thRef = thresholds.head
 
     val goldBase =
       paths.goldJT.substring(0, paths.goldJT.lastIndexOf('/'))
 
+    // Construction JT Base + Label
     logger.info("Construction de la base JT (BuildJT.buildJTBase)")
     val jtBase = BuildJT.buildJTBase(flightsEnriched, weatherSlimDF)
 
@@ -292,28 +287,29 @@ object Main {
     )
     val jtLabeled = BuildJT.attachLabel(jtBase, thRef)
 
-    // Matérialisation de la JT de référence selon persist
-    val jtRef: DataFrame =
+    // Matérialisation JT (en mémoire dans tous les cas)
+    val jtRef: DataFrame = {
       if (!persist) {
         logger.info(
-          "Persist désactivé — matérialisation de la JT de référence en cache (MEMORY_AND_DISK)."
+          "Persist désactivé — matérialisation de la JT en cache (MEMORY_AND_DISK)."
         )
-        val df = jtLabeled.persist(StorageLevel.MEMORY_AND_DISK)
-        df.count() // coupe le DAG ici
-        df
       } else {
-        // Mode persist=true : on laisse writeDelta faire l'action
-        jtLabeled
+        logger.info(
+          "Persist activé — matérialisation de la JT en cache (MEMORY_AND_DISK) pour réutilisation écriture + targets."
+        )
       }
+      val df = jtLabeled.persist(StorageLevel.MEMORY_AND_DISK)
+      df.count() // coupe le DAG
+      df
+    }
 
-    // Écriture (optionnelle) de JT
+    // Écriture (optionnelle) de JT → correction : pas de relecture Delta
     val jtForTargets: DataFrame =
       if (persist) {
         logger.info(
           s"Écriture de la JT de référence en Delta : ${paths.goldJT}"
         )
 
-        // IMPORTANT : en local on NE coalesce PLUS JT
         val jtForWrite =
           if (cfg.env == Environment.Hadoop) {
             logger.info(
@@ -322,7 +318,7 @@ object Main {
             jtRef.repartition(col("year"), col("month"))
           } else {
             logger.info(
-              "Env = Local : pas de repartition explicite sur JT (on laisse AQE décider)."
+              "Env = Local : pas de repartition explicite sur JT (AQE décide)."
             )
             jtRef
           }
@@ -335,9 +331,9 @@ object Main {
         )
 
         logger.info(
-          "Relecture de la JT depuis Delta pour la génération des targets"
+          "Persist=true — réutilisation directe de jtRef en mémoire (pas de relecture Delta)."
         )
-        Readers.readDelta(spark, paths.goldJT)
+        jtRef
       } else {
         logger.info(
           "Persist désactivé — aucune écriture de JT en Delta, utilisation directe en mémoire."
@@ -345,7 +341,7 @@ object Main {
         jtRef
       }
 
-    // Génération des keys & targets (TargetBatch)
+    // Génération des keys & targets
     val tau = 0.95
 
     logger.info(
@@ -383,20 +379,18 @@ object Main {
       col("is_pos")
     )
 
-    // Matérialisation des targets en mode in-memory
+    // Cache targets si persist=false
     val targetsDf: DataFrame =
       if (!persist) {
         logger.info(
           "Cache de targetsDf en mémoire (MEMORY_AND_DISK, persist=false)"
         )
         val df = targetsDfRaw.persist(StorageLevel.MEMORY_AND_DISK)
-        df.count() // coupe le DAG ici
+        df.count()
         df
-      } else {
-        targetsDfRaw
-      }
+      } else targetsDfRaw
 
-    // Écriture (optionnelle) des targets
+    // Écriture targets
     if (persist) {
       val out = s"$goldBase/targets"
 
@@ -420,7 +414,7 @@ object Main {
       logger.info("Persist désactivé — aucune écriture de targets en Delta.")
     }
 
-    // Debug / inspection
+    // Debug facultatif
     if (debug) {
       logger.info(
         "Inspection d'un slice de targets (TargetsInspection.inspectSlice)"
