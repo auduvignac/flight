@@ -160,7 +160,7 @@ object BuildJT {
     val wxBase = weatherPruned
       .repartition(col("airport_id"))
       .sortWithinPartitions(col("airport_id"), col("obs_utc"))
-      .persist(StorageLevel.MEMORY_AND_DISK)
+      .persist(StorageLevel.MEMORY_ONLY)
 
     val wxOrigin = wxBase.select(
       col("airport_id").as("o_airport_id"),

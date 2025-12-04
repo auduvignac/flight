@@ -103,7 +103,7 @@ object TargetBuilder {
     thMinutes: Int,
     tau: Double, // ex. 0.95
     sampleSeed: Long = 42L,
-    persistLevel: StorageLevel = StorageLevel.MEMORY_AND_DISK
+    persistLevel: StorageLevel = StorageLevel.MEMORY_ONLY
   ): Map[String, DataFrame] = {
 
     val light = normalizeLight(jt, thMinutes)
@@ -202,7 +202,7 @@ object TargetBuilder {
     thMinutes: Int,
     tau: Double,
     sampleSeed: Long = 42L,
-    persistLevel: StorageLevel = StorageLevel.MEMORY_AND_DISK
+    persistLevel: StorageLevel = StorageLevel.MEMORY_ONLY
   ): Map[String, DataFrame] =
     throw new UnsupportedOperationException(
       "Deprecated: utilisez TargetBatch.* (un seul join & write partitionné)."

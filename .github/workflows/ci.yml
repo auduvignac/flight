@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, optimization]
+    branches: [main, feature/persist]
   pull_request:
   workflow_dispatch:
 
@@ -143,7 +143,7 @@ jobs:
           path: /app/data/
 
       - name: Run Bronze stage
-        run: ./run-app.sh --stage=bronze --local
+        run: ./run-app.sh --stage=bronze --local --persist
 
       - name: Upload Bronze analysis
         uses: actions/upload-artifact@v4
@@ -156,6 +156,83 @@ jobs:
         with:
           name: delta-bronze
           path: /app/delta/
+
+  # ============================================
+  # Étape 3bis — Full Pipeline (All Stages)
+  # ============================================
+  full-pipeline:
+    name: 🌈 Full Pipeline - End-to-End Run
+    needs: [prepare-dataset, docker-build]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/auduvignac/flight:latest
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        exp:
+          [
+            # === Baseline
+            { ds: "D2", th: 60, origin: 0, dest: 0, tag: "Baseline_D2_th60_noWeather" },
+
+            # === Étude 1 : Origine seule
+            { ds: "D2", th: 60, origin: 1, dest: 0, tag: "S1_origin_1h_D2_th60" },
+            { ds: "D2", th: 60, origin: 3, dest: 0, tag: "S1_origin_3h_D2_th60" },
+            { ds: "D2", th: 60, origin: 5, dest: 0, tag: "S1_origin_5h_D2_th60" },
+            { ds: "D2", th: 60, origin: 7, dest: 0, tag: "S1_origin_7h_D2_th60" },
+            { ds: "D2", th: 60, origin: 9, dest: 0, tag: "S1_origin_9h_D2_th60" },
+            { ds: "D2", th: 60, origin: 11, dest: 0, tag: "S1_origin_11h_D2_th60" },
+
+            # === Étude 1 : Destination seule
+            { ds: "D2", th: 60, origin: 0, dest: 1, tag: "S1_dest_1h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 3, tag: "S1_dest_3h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 5, tag: "S1_dest_5h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 7, tag: "S1_dest_7h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 9, tag: "S1_dest_9h_D2_th60" },
+            { ds: "D2", th: 60, origin: 0, dest: 11, tag: "S1_dest_11h_D2_th60" },
+
+            # === Étude 1 : Origine + destination
+            { ds: "D2", th: 60, origin: 7, dest: 7, tag: "S1_origin7h_dest7h_D2_th60" },
+
+            # === Étude 2 : variation du seuil th
+            { ds: "D2", th: 15, origin: 7, dest: 7, tag: "S2_D2_th15_origin7h_dest7h" },
+            { ds: "D2", th: 30, origin: 7, dest: 7, tag: "S2_D2_th30_origin7h_dest7h" },
+            { ds: "D2", th: 45, origin: 7, dest: 7, tag: "S2_D2_th45_origin7h_dest7h" },
+            { ds: "D2", th: 60, origin: 7, dest: 7, tag: "S2_D2_th60_origin7h_dest7h" },
+            { ds: "D2", th: 90, origin: 7, dest: 7, tag: "S2_D2_th90_origin7h_dest7h" },
+
+            # === Étude 3 : variation du dataset
+            { ds: "D1", th: 60, origin: 7, dest: 7, tag: "S3_D1_th60_origin7h_dest7h" },
+            { ds: "D3", th: 60, origin: 7, dest: 7, tag: "S3_D3_th60_origin7h_dest7h" },
+            { ds: "D4", th: 60, origin: 7, dest: 7, tag: "S3_D4_th60_origin7h_dest7h" }
+          ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download dataset
+        uses: actions/download-artifact@v4
+        with:
+          name: dataset
+          path: /app/data/
+
+      - name: Run full pipeline (matrix experiment)
+        run: |
+          echo "🚀 Running full pipeline experiment: ${{ matrix.exp.tag }}"
+          ./run-app.sh \
+            --stage=all --local \
+            --ds=${{ matrix.exp.ds }} \
+            --th=${{ matrix.exp.th }} \
+            --originHours=${{ matrix.exp.origin }} \
+            --destHours=${{ matrix.exp.dest }} \
+            --tag=${{ matrix.exp.tag }}
+
+      - name: Upload End-to-End analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-${{ matrix.exp.tag }}
+          path: analysis/
 
   # ============================================
   # Étape 4 — Silver Stage
@@ -184,7 +261,7 @@ jobs:
           path: /app/delta/
 
       - name: Run Silver stage
-        run: ./run-app.sh --stage=silver --local
+        run: ./run-app.sh --stage=silver --local --persist
 
       - name: Upload Silver analysis
         uses: actions/upload-artifact@v4
@@ -231,7 +308,7 @@ jobs:
         run: |
           echo "Building Gold for threshold ${{ matrix.th }} minutes"
           ./run-app.sh \
-            --stage=gold --local \
+            --stage=gold --local --persist \
             --deltaBase="/app/delta" \
             --th=${{ matrix.th }}
 
@@ -320,7 +397,7 @@ jobs:
         run: |
           echo "🚀 Running ML experiment: ${{ matrix.exp.tag }}"
           ./run-app.sh \
-            --stage=ml --local \
+            --stage=ml --local --persist \
             --deltaBase="/app/delta-${{ matrix.exp.tag }}" \
             --ds=${{ matrix.exp.ds }} \
             --th=${{ matrix.exp.th }} \

@@ -2,8 +2,8 @@
 package com.emiasd.flight.analysis
 
 import org.apache.log4j.Logger
-import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{DataFrame, SparkSession}
 
 object TargetsInspection {
 
@@ -11,13 +11,11 @@ object TargetsInspection {
 
   def inspectSlice(
     spark: SparkSession,
-    targetsPath: String,
+    df: DataFrame,
     dsValue: String = "D2",
     thValue: Int = 60,
     n: Int = 20
   ): Unit = {
-
-    val df = spark.read.format("delta").load(targetsPath)
 
     logger.info(s"=== Targets slice ds=$dsValue, th=$thValue ===")
 

@@ -33,6 +33,9 @@ final case class AppConfig(
   hDeltaSilverBase: String,
   hDeltaGoldBase: String,
 
+  // === Persistence toggle ===
+  persistOutputs: Boolean = false,
+
   // === Processing params ===
   monthsF: Seq[String],
   monthsW: Seq[String],
@@ -140,6 +143,10 @@ object AppConfig {
         app.getConfig("hadoop").getString("output.delta.base.silver"),
       hDeltaGoldBase =
         app.getConfig("hadoop").getString("output.delta.base.gold"),
+      persistOutputs =
+        if (app.hasPath("persist.enabled"))
+          app.getConfig("persist").getBoolean("enabled")
+        else false,
       // Params
       monthsF = getSeq(app, "input.months_f"),
       monthsW = getSeq(app, "input.months_w"),
@@ -170,6 +177,7 @@ object AppConfig {
     logger.info(s"Delta Bronze Base    : ${cfg.deltaBronzeBase}")
     logger.info(s"Delta Silver Base    : ${cfg.deltaSilverBase}")
     logger.info(s"Delta Gold Base      : ${cfg.deltaGoldBase}")
+    logger.info(s"Persist Outputs      : ${cfg.persistOutputs}")
     // base passée en CLI (optionnelle)
     logger.info(s"Delta Base (CLI opt) : ${cfg.deltaBase.getOrElse("-")}")
     logger.info(s"Dataset (opt)        : ${cfg.ds.getOrElse("-")}")

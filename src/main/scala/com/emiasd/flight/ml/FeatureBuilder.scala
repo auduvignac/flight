@@ -3,7 +3,7 @@ package com.emiasd.flight.ml
 
 import org.apache.log4j.Logger
 import org.apache.spark.sql.functions._
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame}
 
 object FeatureBuilder {
   val logger = Logger.getLogger(getClass.getName)
@@ -311,16 +311,13 @@ object FeatureBuilder {
    *   - renvoie (train, test, extraNumColsMeteo)
    */
   def prepareDataset(
-    spark: SparkSession,
-    targetsPath: String,
     ds: String,
     th: Int,
     cfg: FeatureConfig = FeatureConfig(),
     originHours: Int = 0,
-    destHours: Int = 0
+    destHours: Int = 0,
+    raw: DataFrame
   ): (DataFrame, DataFrame, Array[String]) = {
-
-    val raw = spark.read.format("delta").load(targetsPath)
 
     val slice = raw
       .filter(col("ds") === lit(ds) && col("th") === lit(th))
