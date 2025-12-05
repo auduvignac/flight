@@ -445,21 +445,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Download ALL ml-results-* artifacts
+      - name: Install jq (required for parsing JSON)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Download all ML result artifacts
         run: |
           mkdir -p ml_artifacts
-          echo "🔍 Listing available artifacts:"
-          gh run artifacts
 
-          echo "⬇️ Downloading all ml-results-* artifacts..."
-          ARTIFACTS=$(gh run artifacts --json name -q '.[] | select(.name | startswith("ml-results-")) | .name')
+          echo "🔍 Fetching artifact list from GitHub API..."
+          curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            > artifacts.json
 
-          for A in $ARTIFACTS; do
-            echo "📦 Downloading $A"
-            gh run download "$A" --dir ml_artifacts
+          echo "📄 List of artifacts:"
+          cat artifacts.json
+
+          echo "⬇️ Extracting ml-results-* artifacts..."
+          ARTIFACT_IDS=$(jq -r '.artifacts[] | select(.name | startswith("ml-results-")) | "\(.id):\(.name)"' artifacts.json)
+
+          if [ -z "$ARTIFACT_IDS" ]; then
+            echo "❌ No ml-results-* artifacts found!"
+            exit 1
+          fi
+
+          echo "$ARTIFACT_IDS" | while IFS=":" read -r ID NAME; do
+            echo "📦 Downloading artifact $NAME (ID: $ID)"
+            curl -L -o "$NAME.zip" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ID/zip"
+
+            mkdir -p "ml_artifacts/$NAME"
+            unzip -qo "$NAME.zip" -d "ml_artifacts/$NAME"
           done
-
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -468,13 +487,11 @@ jobs:
           echo "📂 Downloaded ML results:"
           ls -R ml_artifacts || echo "⚠️ No files found"
 
-      # Install Python deps
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
           pip install pandas jinja2 plotly
 
-      # Generate global HTML report
       - name: Generate Global ML Report
         run: |
           python .github/scripts/generate_global_report.py \
