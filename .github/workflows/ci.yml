@@ -490,7 +490,7 @@ jobs:
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
-          pip install pandas jinja2 plotly
+          pip install pandas jinja2 plotly matplotlib
 
       - name: Generate Global ML Report
         run: |
