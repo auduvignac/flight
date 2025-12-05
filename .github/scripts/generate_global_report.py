@@ -30,7 +30,7 @@ def load_curve_points(path):
 
 
 # -------------------------------------------------------------------
-# Save matplotlib charts to PNG
+# Save full PNG feature importances
 # -------------------------------------------------------------------
 def save_feature_importances_png(fi_df, exp_title, out_path):
     plt.figure(figsize=(10, 5))
@@ -42,6 +42,27 @@ def save_feature_importances_png(fi_df, exp_title, out_path):
     plt.close()
 
 
+# -------------------------------------------------------------------
+# Save Top-N feature importances (PNG only)
+# -------------------------------------------------------------------
+def save_top_features_png(fi_df, n, exp_title, out_png):
+    """
+    Save top-N feature importances as PNG only.
+    """
+    df_top = fi_df.head(n)
+
+    plt.figure(figsize=(8, 4))
+    plt.barh(df_top["feature"], df_top["importance"], color="steelblue")
+    plt.gca().invert_yaxis()
+    plt.title(f"Top {n} Features — {exp_title}")
+    plt.tight_layout()
+    plt.savefig(out_png)
+    plt.close()
+
+
+# -------------------------------------------------------------------
+# Save ROC/PR curves as PNG
+# -------------------------------------------------------------------
 def save_curve_png(x, y, xlabel, ylabel, title, out_path):
     if not x or not y:
         return
@@ -58,15 +79,16 @@ def save_curve_png(x, y, xlabel, ylabel, title, out_path):
 # -------------------------------------------------------------------
 # Scan ML artifacts and build experiment list
 # -------------------------------------------------------------------
-def collect_experiments(input_dir, experiments_meta):
+def collect_experiments(input_dir, experiments_meta, top_k=10):
     experiments = []
 
     print(f"🔍 Searching in: {input_dir}")
     for root, dirs, files in os.walk(input_dir):
         for filename in files:
+
             if not filename.endswith("_metrics.json"):
                 continue
-            
+
             tag = filename.replace("_metrics.json", "")
             exp_path = root
             print(f"➡ Metrics found for {tag}")
@@ -80,14 +102,18 @@ def collect_experiments(input_dir, experiments_meta):
                 print(f"⚠ Missing FI for {tag}, skipping.")
                 continue
 
-            # Load metrics
+            # Load metrics JSON
             with open(metrics_path, "r") as f:
                 metrics = json.load(f)
 
+            # Load feature importances
             fi_df = pd.read_csv(fi_path).sort_values("importance", ascending=False)
+
+            # Load curves
             roc_x, roc_y = load_curve_points(roc_path)
             pr_x, pr_y = load_curve_points(pr_path)
 
+            # Metadata
             meta = experiments_meta.get(tag, {})
             title = (
                 f"Dataset {meta.get('ds')} — th={meta.get('th')} — "
@@ -95,11 +121,14 @@ def collect_experiments(input_dir, experiments_meta):
             )
 
             # -------------------------------
-            # Save PNG charts
+            # SAVE FIGURES
             # -------------------------------
+
+            # Full Feature Importance PNG
             fi_png = os.path.join(exp_path, f"{tag}_fi.png")
             save_feature_importances_png(fi_df, title, fi_png)
 
+            # ROC curve PNG
             roc_png = os.path.join(exp_path, f"{tag}_roc.png")
             save_curve_png(
                 roc_x, roc_y,
@@ -109,6 +138,7 @@ def collect_experiments(input_dir, experiments_meta):
                 out_path=roc_png
             )
 
+            # PR curve PNG
             pr_png = os.path.join(exp_path, f"{tag}_pr.png")
             save_curve_png(
                 pr_x, pr_y,
@@ -118,8 +148,15 @@ def collect_experiments(input_dir, experiments_meta):
                 out_path=pr_png
             )
 
+            # -------------------------------
+            # TOP-K FEATURE IMPORTANCES (PNG ONLY)
+            # -------------------------------
+            top_png = os.path.join(exp_path, f"{tag}_fi_top{top_k}.png")
+            save_top_features_png(fi_df, top_k, title, top_png)
+
             print(f"📸 Saved charts for {tag} in {exp_path}")
 
+            # Store experiment record
             experiments.append({
                 "tag": tag,
                 "ds": meta.get("ds"),
@@ -138,6 +175,7 @@ def collect_experiments(input_dir, experiments_meta):
                 "fi_png": fi_png,
                 "roc_png": roc_png,
                 "pr_png": pr_png,
+                "fi_top_png": top_png,   # stores PNG only
             })
 
     return experiments
@@ -166,10 +204,11 @@ def main():
     parser.add_argument("--input", required=True, help="Directory with ML artifacts")
     parser.add_argument("--output", required=True, help="Output HTML report")
     parser.add_argument("--template", required=True, help="HTML Jinja template")
+    parser.add_argument("--topk", type=int, default=10, help="Top-K features to export")
     args = parser.parse_args()
 
     experiments_meta = load_experiments_metadata()
-    experiments = collect_experiments(args.input, experiments_meta)
+    experiments = collect_experiments(args.input, experiments_meta, top_k=args.topk)
 
     if not experiments:
         raise RuntimeError("❌ No experiment results found.")
