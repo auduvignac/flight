@@ -426,3 +426,53 @@ jobs:
           echo "📂 ML files generated for ${{ matrix.exp.tag }}:"
           ls -R /app/delta/analysis/ml || echo "⚠️ No files found"
 
+
+  # ============================================
+  # Étape 7 — AGRÉGATION DES RÉSULTATS ML
+  # ============================================
+  aggregate-report:
+    name: 📊 Aggregate ML Results (Global Report)
+    needs: ml
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Téléchargement de TOUS les fichiers metrics.json + FI.csv
+      - name: Download ML results artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ml-results
+          path: ml_artifacts
+
+      - name: List downloaded ML results
+        run: |
+          echo "📂 Fichiers téléchargés depuis ml-results :"
+          ls -R ml_artifacts || echo "⚠️ Aucun fichier trouvé"
+
+      # Installation des dépendances Python
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install pandas jinja2 plotly
+
+      # Génération du rapport global (une seule page HTML)
+      - name: Generate Global ML Report
+        run: |
+          python .github/scripts/generate_global_report.py \
+            --input ml_artifacts \
+            --output ml_report_all.html \
+            --template templates/ml_report_global_template.html
+
+      # Upload du rapport
+      - name: Upload Global ML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-report-global
+          path: ml_report_all.html
+
+      # (Optionnel mais recommandé)
+      - name: Add Summary Info
+        run: |
+          echo "## Rapport ML Global généré" >> $GITHUB_STEP_SUMMARY
+          echo "Télécharger : **ml-report-global** (artifact)" >> $GITHUB_STEP_SUMMARY
