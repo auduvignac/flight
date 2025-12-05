@@ -55,3 +55,22 @@ classDiagram
     +readDelta(spark: SparkSession, path: String): DataFrame
   }
 ```
+
+## 📊 Rapport Global ML (Généré automatiquement via CI/CD)
+
+[![ML Report](https://img.shields.io/badge/Rapport_ML-en_ligne-blue?logo=github)](https://auduvignac.github.io/flight/ml_report_all.html)
+
+Le rapport complet consolidant tous les résultats de modélisation est généré automatiquement par la pipeline GitHub Actions après chaque exécution ML.
+
+🔗 **Accéder au rapport interactif :**  
+👉 https://auduvignac.github.io/flight/ml_report_all.html
+
+Ce rapport comprend :
+
+- les métriques de performance pour toutes les expériences (AUC, PR-AUC, accuracy, recall, precision)  
+- les importances des variables (Random Forest)  
+- des tableaux comparatifs (datasets, fenêtres météo, seuils, features)  
+- des visualisations interactives (Plotly)  
+- un résumé global et un classement des meilleures configurations  
+
+Le rapport est automatiquement reconstruit et publié via GitHub Pages à la fin de chaque exécution CI.
