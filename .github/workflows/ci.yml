@@ -410,3 +410,19 @@ jobs:
         with:
           name: analysis-${{ matrix.exp.tag }}
           path: analysis/
+
+      - name: Upload ML metrics + FI
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-results
+          path: |
+            /app/delta/analysis/ml/*.json
+            /app/delta/analysis/ml/*.csv
+            /app/delta/analysis/ml/*.html
+            /app/delta/analysis/ml/*.png || true
+
+      - name: Debug ML generated files (optional)
+        run: |
+          echo "📂 ML files generated for ${{ matrix.exp.tag }}:"
+          ls -R /app/delta/analysis/ml || echo "⚠️ No files found"
+
