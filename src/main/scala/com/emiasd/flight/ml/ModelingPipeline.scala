@@ -69,8 +69,12 @@ object ModelingPipeline {
 
     import spark.implicits._
 
-    val outputDir = buildOutputDir(analysisDir, ds, th, tag)
-    ensureDirectory(spark, outputDir)
+    val baseDir      = normalizeBaseDir(analysisDir)
+    val sanitizedTag = sanitizeTag(tag)
+    ensureDirectory(spark, baseDir)
+
+    val featurePath = s"$baseDir/${sanitizedTag}_feature_importances.csv"
+    val metricsPath = s"$baseDir/${sanitizedTag}_metrics.json"
 
     logger.info(
       s"[ModelingPipeline] Entraînement RandomForest " +
@@ -108,11 +112,11 @@ object ModelingPipeline {
       saveCsv(
         spark,
         Seq("feature,importance") ++ rows,
-        s"$outputDir/feature_importances.csv"
+        featurePath
       )
 
       logger.info(
-        s"[ModelingPipeline] Feature importances exportées dans $outputDir/feature_importances.csv"
+        s"[ModelingPipeline] Feature importances exportées dans $featurePath"
       )
 
     } catch {
@@ -179,9 +183,9 @@ object ModelingPipeline {
         precision = precision
       )
 
-      saveJson(spark, metrics, s"$outputDir/metrics.json")
+      saveJson(spark, metrics, metricsPath)
       logger.info(
-        s"[ModelingPipeline] Métriques exportées dans $outputDir/metrics.json"
+        s"[ModelingPipeline] Métriques exportées dans $metricsPath"
       )
 
     } finally
@@ -199,17 +203,12 @@ object ModelingPipeline {
     precision: Double
   )
 
-  private def buildOutputDir(
-    baseDir: String,
-    ds: String,
-    th: Int,
-    tag: String
-  ): String = {
-    val sanitizedBase =
-      if (baseDir.endsWith("/")) baseDir.stripSuffix("/")
-      else baseDir
-    Seq(sanitizedBase, "ml", s"ds=$ds", s"th=$th", tag).mkString("/")
-  }
+  private def normalizeBaseDir(baseDir: String): String =
+    if (baseDir.endsWith("/")) baseDir.stripSuffix("/")
+    else baseDir
+
+  private def sanitizeTag(tag: String): String =
+    tag.replaceAll("[^A-Za-z0-9._-]", "_")
 
   private def ensureDirectory(spark: SparkSession, dir: String): Unit = {
     val path = new Path(dir)
