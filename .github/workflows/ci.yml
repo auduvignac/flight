@@ -476,3 +476,36 @@ jobs:
         run: |
           echo "## Rapport ML Global généré" >> $GITHUB_STEP_SUMMARY
           echo "Télécharger : **ml-report-global** (artifact)" >> $GITHUB_STEP_SUMMARY
+
+
+  # ============================================
+  # Étape 8 — Publication GitHub Pages
+  # ============================================
+  publish-pages:
+    name: 🌐 Publish ML Global Report to GitHub Pages
+    runs-on: ubuntu-latest
+    needs: aggregate-report
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download global report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ml-report-global
+          path: public
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
