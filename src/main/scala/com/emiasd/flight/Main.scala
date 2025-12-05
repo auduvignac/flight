@@ -510,6 +510,9 @@ object Main {
 
     logger.info("=== Étape Spark ML ===")
 
+    val mlAnalysisDir = s"${paths.analysisDir}/ml"
+    Writers.mkdirSmart(spark, mlAnalysisDir)(logger)
+
     // Vérification/lecture des tables Gold
     val resolvedGold: GoldData =
       goldData.getOrElse {
@@ -614,7 +617,8 @@ object Main {
         e.ds,
         e.th,
         extraNumCols,
-        e.tag
+        e.tag,
+        mlAnalysisDir
       )
     }
 

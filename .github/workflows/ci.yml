@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, feature/optimization-JT]
+    branches: [main, feature/results-export]
   pull_request:
   workflow_dispatch:
 
