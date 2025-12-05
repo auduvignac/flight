@@ -445,25 +445,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Téléchargement de TOUS les artefacts ML
-      - name: Download ML results artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: ml-results-*
-          path: ml_artifacts
+      # Download ALL ml-results-* artifacts
+      - name: Download all ML result artifacts
+        run: |
+          mkdir -p ml_artifacts
+          echo "🔍 Listing available artifacts:"
+          gh run artifacts
+
+          echo "⬇️ Downloading all ml-results-* artifacts..."
+          ARTIFACTS=$(gh run artifacts --json name -q '.[] | select(.name | startswith("ml-results-")) | .name')
+
+          for A in $ARTIFACTS; do
+            echo "📦 Downloading $A"
+            gh run download "$A" --dir ml_artifacts
+          done
+
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: List downloaded ML results
         run: |
-          echo "📂 Fichiers téléchargés depuis ml-results-* :"
-          ls -R ml_artifacts || echo "⚠️ Aucun fichier trouvé"
+          echo "📂 Downloaded ML results:"
+          ls -R ml_artifacts || echo "⚠️ No files found"
 
-      # Installation des dépendances Python
+      # Install Python deps
       - name: Install Python dependencies
         run: |
           python3 -m pip install --upgrade pip
           pip install pandas jinja2 plotly
 
-      # Génération du rapport global
+      # Generate global HTML report
       - name: Generate Global ML Report
         run: |
           python .github/scripts/generate_global_report.py \
@@ -471,18 +482,16 @@ jobs:
             --output ml_report_all.html \
             --template templates/ml_report_global_template.html
 
-      # Upload du rapport HTML global
       - name: Upload Global ML Report
         uses: actions/upload-artifact@v4
         with:
           name: ml-report-global
           path: ml_report_all.html
 
-      # (Optionnel mais recommandé)
       - name: Add Summary Info
         run: |
-          echo "## Rapport ML Global généré" >> $GITHUB_STEP_SUMMARY
-          echo "Télécharger : **ml-report-global** (artifact)" >> $GITHUB_STEP_SUMMARY
+          echo "## Global ML Report generated 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "Download artifact: **ml-report-global**" >> $GITHUB_STEP_SUMMARY
 
 
   # ============================================
