@@ -510,6 +510,27 @@ jobs:
           echo "## Global ML Report generated 🎉" >> $GITHUB_STEP_SUMMARY
           echo "Download artifact: **ml-report-global**" >> $GITHUB_STEP_SUMMARY
 
+      - name: Assemble all ML assets into a single directory
+        run: |
+          echo "📦 Creating ml_all_assets/"
+          mkdir -p ml_all_assets
+
+          echo "📁 Copying all experiment artifacts..."
+          cp -r ml_artifacts/* ml_all_assets/
+
+          echo "📄 Copying global HTML report..."
+          cp ml_report_all.html ml_all_assets/
+
+          echo "📂 Contents of ml_all_assets:"
+          ls -R ml_all_assets
+
+      - name: Upload complete ML assets archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-all-assets
+          path: ml_all_assets
+
+
 
   # ============================================
   # Étape 8 — Publication GitHub Pages
