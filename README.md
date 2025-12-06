@@ -60,7 +60,7 @@ classDiagram
 
 [![ML Report](https://img.shields.io/badge/Rapport_ML-en_ligne-blue?logo=github)](https://auduvignac.github.io/flight/ml_report_all.html)
 
-Le rapport complet consolidant tous les résultats de modélisation est généré automatiquement par la pipeline GitHub Actions après chaque exécution ML.
+Le rapport complet consolidant tous les résultats de modélisation est généré automatiquement par le *pipeline* GitHub Actions après chaque exécution ML.
 
 🔗 **Accéder au rapport interactif :**  
 👉 https://auduvignac.github.io/flight/ml_report_all.html

@@ -83,100 +83,96 @@ def collect_experiments(input_dir, experiments_meta, top_k=10):
     experiments = []
 
     print(f"🔍 Searching in: {input_dir}")
-    for root, dirs, files in os.walk(input_dir):
-        for filename in files:
 
-            if not filename.endswith("_metrics.json"):
-                continue
+    # --- ORDERED LOOP ===> FOLLOW experiments.json EXACTLY ---
+    for tag, meta in experiments_meta.items():
 
-            tag = filename.replace("_metrics.json", "")
-            exp_path = root
-            print(f"➡ Metrics found for {tag}")
+        exp_path = os.path.join(input_dir, f"ml-results-{tag}")
+        print(f"➡ Processing experiment: {tag}")
 
-            metrics_path = os.path.join(root, filename)
-            fi_path = os.path.join(root, tag + "_feature_importances.csv")
-            roc_path = os.path.join(root, tag + "_roc_points.json")
-            pr_path = os.path.join(root, tag + "_pr_points.json")
+        metrics_path = os.path.join(exp_path, f"{tag}_metrics.json")
+        fi_path      = os.path.join(exp_path, f"{tag}_feature_importances.csv")
+        roc_path     = os.path.join(exp_path, f"{tag}_roc_points.json")
+        pr_path      = os.path.join(exp_path, f"{tag}_pr_points.json")
 
-            if not os.path.exists(fi_path):
-                print(f"⚠ Missing FI for {tag}, skipping.")
-                continue
+        # -----------------------------------------
+        # CHECK FILES EXIST (but keep deterministic ordering)
+        # -----------------------------------------
+        if not os.path.exists(metrics_path):
+            print(f"❌ Missing metrics for {tag}, skipping.")
+            continue
 
-            # Load metrics JSON
-            with open(metrics_path, "r") as f:
-                metrics = json.load(f)
+        if not os.path.exists(fi_path):
+            print(f"❌ Missing FI for {tag}, skipping.")
+            continue
 
-            # Load feature importances
-            fi_df = pd.read_csv(fi_path).sort_values("importance", ascending=False)
+        # -----------------------------------------
+        # LOAD DATA
+        # -----------------------------------------
+        with open(metrics_path, "r") as f:
+            metrics = json.load(f)
 
-            # Load curves
-            roc_x, roc_y = load_curve_points(roc_path)
-            pr_x, pr_y = load_curve_points(pr_path)
+        fi_df = pd.read_csv(fi_path).sort_values("importance", ascending=False)
 
-            # Metadata
-            meta = experiments_meta.get(tag, {})
-            title = (
-                f"Dataset {meta.get('ds')} — th={meta.get('th')} — "
-                f"origin={meta.get('origin')}h — dest={meta.get('dest')}h"
-            )
+        roc_x, roc_y = load_curve_points(roc_path)
+        pr_x, pr_y = load_curve_points(pr_path)
 
-            # -------------------------------
-            # SAVE FIGURES
-            # -------------------------------
+        title = (
+            f"Dataset {meta.get('ds')} — th={meta.get('th')} — "
+            f"origin={meta.get('origin')}h — dest={meta.get('dest')}h"
+        )
 
-            # Full Feature Importance PNG
-            fi_png = os.path.join(exp_path, f"{tag}_fi.png")
-            save_feature_importances_png(fi_df, title, fi_png)
+        # -----------------------------------------
+        # SAVE FIGURES
+        # -----------------------------------------
+        fi_png = os.path.join(exp_path, f"{tag}_fi.png")
+        save_feature_importances_png(fi_df, title, fi_png)
 
-            # ROC curve PNG
-            roc_png = os.path.join(exp_path, f"{tag}_roc.png")
-            save_curve_png(
-                roc_x, roc_y,
-                xlabel="False Positive Rate",
-                ylabel="True Positive Rate",
-                title=f"ROC Curve — {title}",
-                out_path=roc_png
-            )
+        roc_png = os.path.join(exp_path, f"{tag}_roc.png")
+        save_curve_png(
+            roc_x, roc_y,
+            xlabel="False Positive Rate",
+            ylabel="True Positive Rate",
+            title=f"ROC Curve — {title}",
+            out_path=roc_png
+        )
 
-            # PR curve PNG
-            pr_png = os.path.join(exp_path, f"{tag}_pr.png")
-            save_curve_png(
-                pr_x, pr_y,
-                xlabel="Recall",
-                ylabel="Precision",
-                title=f"PR Curve — {title}",
-                out_path=pr_png
-            )
+        pr_png = os.path.join(exp_path, f"{tag}_pr.png")
+        save_curve_png(
+            pr_x, pr_y,
+            xlabel="Recall",
+            ylabel="Precision",
+            title=f"PR Curve — {title}",
+            out_path=pr_png
+        )
 
-            # -------------------------------
-            # TOP-K FEATURE IMPORTANCES (PNG ONLY)
-            # -------------------------------
-            top_png = os.path.join(exp_path, f"{tag}_fi_top{top_k}.png")
-            save_top_features_png(fi_df, top_k, title, top_png)
+        # Top-K features
+        top_png = os.path.join(exp_path, f"{tag}_fi_top{top_k}.png")
+        save_top_features_png(fi_df, top_k, title, top_png)
 
-            print(f"📸 Saved charts for {tag} in {exp_path}")
-
-            # Store experiment record
-            experiments.append({
-                "tag": tag,
-                "ds": meta.get("ds"),
-                "th": meta.get("th"),
-                "origin": meta.get("origin"),
-                "dest": meta.get("dest"),
-                "title": title,
-                "metrics": metrics,
-                "fi": fi_df.to_dict("records"),
-                "fi_names": fi_df["feature"].tolist(),
-                "fi_values": fi_df["importance"].tolist(),
-                "roc_x": roc_x,
-                "roc_y": roc_y,
-                "pr_x": pr_x,
-                "pr_y": pr_y,
-                "fi_png": fi_png,
-                "roc_png": roc_png,
-                "pr_png": pr_png,
-                "fi_top_png": top_png,   # stores PNG only
-            })
+        # -----------------------------------------
+        # STORE RESULTS (IN THE EXACT ORDER OF experiments.json)
+        # -----------------------------------------
+        experiments.append({
+            "tag": tag,
+            "ds": meta.get("ds"),
+            "th": meta.get("th"),
+            "origin": meta.get("origin"),
+            "dest": meta.get("dest"),
+            "title": title,
+            "metrics": metrics,
+            "fi": fi_df.to_dict("records"),
+            "fi_names": fi_df["feature"].tolist(),
+            "fi_values": fi_df["importance"].tolist(),
+            "roc_x": roc_x,
+            "roc_y": roc_y,
+            "pr_x": pr_x,
+            "pr_y": pr_y,
+            "fi_png": fi_png,
+            "roc_png": roc_png,
+            "pr_png": pr_png,
+            "fi_top_png": top_png
+        })
 
     return experiments
 
