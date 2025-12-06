@@ -1,0 +1,28 @@
+[
+  { "tag": "Baseline_D2_th60_noWeather", "ds": "D2", "th": 60, "origin": 0, "dest": 0 },
+  { "tag": "S1_origin_1h_D2_th60", "ds": "D2", "th": 60, "origin": 1, "dest": 0 },
+  { "tag": "S1_origin_3h_D2_th60", "ds": "D2", "th": 60, "origin": 3, "dest": 0 },
+  { "tag": "S1_origin_5h_D2_th60", "ds": "D2", "th": 60, "origin": 5, "dest": 0 },
+  { "tag": "S1_origin_7h_D2_th60", "ds": "D2", "th": 60, "origin": 7, "dest": 0 },
+  { "tag": "S1_origin_9h_D2_th60", "ds": "D2", "th": 60, "origin": 9, "dest": 0 },
+  { "tag": "S1_origin_11h_D2_th60", "ds": "D2", "th": 60, "origin": 11, "dest": 0 },
+
+  { "tag": "S1_dest_1h_D2_th60", "ds": "D2", "th": 60, "origin": 0, "dest": 1 },
+  { "tag": "S1_dest_3h_D2_th60", "ds": "D2", "th": 60, "origin": 0, "dest": 3 },
+  { "tag": "S1_dest_5h_D2_th60", "ds": "D2", "th": 60, "origin": 0, "dest": 5 },
+  { "tag": "S1_dest_7h_D2_th60", "ds": "D2", "th": 60, "origin": 0, "dest": 7 },
+  { "tag": "S1_dest_9h_D2_th60", "ds": "D2", "th": 60, "origin": 0, "dest": 9 },
+  { "tag": "S1_dest_11h_D2_th60", "ds": "D2", "th": 60, "origin": 0, "dest": 11 },
+
+  { "tag": "S1_origin7h_dest7h_D2_th60", "ds": "D2", "th": 60, "origin": 7, "dest": 7 },
+
+  { "tag": "S2_D2_th15_origin7h_dest7h", "ds": "D2", "th": 15, "origin": 7, "dest": 7 },
+  { "tag": "S2_D2_th30_origin7h_dest7h", "ds": "D2", "th": 30, "origin": 7, "dest": 7 },
+  { "tag": "S2_D2_th45_origin7h_dest7h", "ds": "D2", "th": 45, "origin": 7, "dest": 7 },
+  { "tag": "S2_D2_th60_origin7h_dest7h", "ds": "D2", "th": 60, "origin": 7, "dest": 7 },
+  { "tag": "S2_D2_th90_origin7h_dest7h", "ds": "D2", "th": 90, "origin": 7, "dest": 7 },
+
+  { "tag": "S3_D1_th60_origin7h_dest7h", "ds": "D1", "th": 60, "origin": 7, "dest": 7 },
+  { "tag": "S3_D3_th60_origin7h_dest7h", "ds": "D3", "th": 60, "origin": 7, "dest": 7 },
+  { "tag": "S3_D4_th60_origin7h_dest7h", "ds": "D4", "th": 60, "origin": 7, "dest": 7 }
+]

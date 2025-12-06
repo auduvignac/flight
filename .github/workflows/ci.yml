@@ -2,7 +2,7 @@ name: CI/CD - Flight Project (Optimized with Dataset Management)
 
 on:
   push:
-    branches: [main, feature/optimization-JT]
+    branches: [main, feature/results-export]
   pull_request:
   workflow_dispatch:
 
@@ -158,83 +158,6 @@ jobs:
           path: /app/delta/
 
   # ============================================
-  # Étape 3bis — Full Pipeline (All Stages)
-  # ============================================
-  full-pipeline:
-    name: 🌈 Full Pipeline - End-to-End Run
-    needs: [prepare-dataset, docker-build]
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/auduvignac/flight:latest
-    timeout-minutes: 120
-
-    strategy:
-      fail-fast: false
-      matrix:
-        exp:
-          [
-            # === Baseline
-            { ds: "D2", th: 60, origin: 0, dest: 0, tag: "Baseline_D2_th60_noWeather" },
-
-            # === Étude 1 : Origine seule
-            { ds: "D2", th: 60, origin: 1, dest: 0, tag: "S1_origin_1h_D2_th60" },
-            { ds: "D2", th: 60, origin: 3, dest: 0, tag: "S1_origin_3h_D2_th60" },
-            { ds: "D2", th: 60, origin: 5, dest: 0, tag: "S1_origin_5h_D2_th60" },
-            { ds: "D2", th: 60, origin: 7, dest: 0, tag: "S1_origin_7h_D2_th60" },
-            { ds: "D2", th: 60, origin: 9, dest: 0, tag: "S1_origin_9h_D2_th60" },
-            { ds: "D2", th: 60, origin: 11, dest: 0, tag: "S1_origin_11h_D2_th60" },
-
-            # === Étude 1 : Destination seule
-            { ds: "D2", th: 60, origin: 0, dest: 1, tag: "S1_dest_1h_D2_th60" },
-            { ds: "D2", th: 60, origin: 0, dest: 3, tag: "S1_dest_3h_D2_th60" },
-            { ds: "D2", th: 60, origin: 0, dest: 5, tag: "S1_dest_5h_D2_th60" },
-            { ds: "D2", th: 60, origin: 0, dest: 7, tag: "S1_dest_7h_D2_th60" },
-            { ds: "D2", th: 60, origin: 0, dest: 9, tag: "S1_dest_9h_D2_th60" },
-            { ds: "D2", th: 60, origin: 0, dest: 11, tag: "S1_dest_11h_D2_th60" },
-
-            # === Étude 1 : Origine + destination
-            { ds: "D2", th: 60, origin: 7, dest: 7, tag: "S1_origin7h_dest7h_D2_th60" },
-
-            # === Étude 2 : variation du seuil th
-            { ds: "D2", th: 15, origin: 7, dest: 7, tag: "S2_D2_th15_origin7h_dest7h" },
-            { ds: "D2", th: 30, origin: 7, dest: 7, tag: "S2_D2_th30_origin7h_dest7h" },
-            { ds: "D2", th: 45, origin: 7, dest: 7, tag: "S2_D2_th45_origin7h_dest7h" },
-            { ds: "D2", th: 60, origin: 7, dest: 7, tag: "S2_D2_th60_origin7h_dest7h" },
-            { ds: "D2", th: 90, origin: 7, dest: 7, tag: "S2_D2_th90_origin7h_dest7h" },
-
-            # === Étude 3 : variation du dataset
-            { ds: "D1", th: 60, origin: 7, dest: 7, tag: "S3_D1_th60_origin7h_dest7h" },
-            { ds: "D3", th: 60, origin: 7, dest: 7, tag: "S3_D3_th60_origin7h_dest7h" },
-            { ds: "D4", th: 60, origin: 7, dest: 7, tag: "S3_D4_th60_origin7h_dest7h" }
-          ]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download dataset
-        uses: actions/download-artifact@v4
-        with:
-          name: dataset
-          path: /app/data/
-
-      - name: Run full pipeline (matrix experiment)
-        run: |
-          echo "🚀 Running full pipeline experiment: ${{ matrix.exp.tag }}"
-          ./run-app.sh \
-            --stage=all --local \
-            --ds=${{ matrix.exp.ds }} \
-            --th=${{ matrix.exp.th }} \
-            --originHours=${{ matrix.exp.origin }} \
-            --destHours=${{ matrix.exp.dest }} \
-            --tag=${{ matrix.exp.tag }}
-
-      - name: Upload End-to-End analysis
-        uses: actions/upload-artifact@v4
-        with:
-          name: analysis-${{ matrix.exp.tag }}
-          path: analysis/
-
-  # ============================================
   # Étape 4 — Silver Stage
   # ============================================
   silver:
@@ -388,10 +311,8 @@ jobs:
       - name: Prepare isolated Delta directory
         run: |
           DELTA_ISO="/app/delta-${{ matrix.exp.tag }}"
-          echo "🧩 Creating isolated Delta base: $DELTA_ISO"
           mkdir -p "$DELTA_ISO/gold"
           cp -r /app/delta-tmp/* "$DELTA_ISO/gold/"
-          echo "Copied $(ls $DELTA_ISO/gold)"
 
       - name: Run ML stage (matrix experiment)
         run: |
@@ -410,3 +331,164 @@ jobs:
         with:
           name: analysis-${{ matrix.exp.tag }}
           path: analysis/
+
+      #
+      # EXPORT + UPLOAD ML METRICS / FEATURE IMPORTANCES
+      # (version robuste sans erreur 409)
+      #
+      - name: Prepare ML export directory
+        run: |
+          EXP_DIR="ml_export_${{ matrix.exp.tag }}"
+          mkdir -p "$EXP_DIR"
+
+          cp /app/delta/analysis/ml/*.json "$EXP_DIR/" 2>/dev/null || true
+          cp /app/delta/analysis/ml/*.csv "$EXP_DIR/" 2>/dev/null || true
+          cp /app/delta/analysis/ml/*.png "$EXP_DIR/" 2>/dev/null || true
+          cp /app/delta/analysis/ml/*.html "$EXP_DIR/" 2>/dev/null || true
+
+          echo "📦 Files collected for export ($EXP_DIR):"
+          ls -R "$EXP_DIR"
+
+      - name: Upload ML results (unique artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-results-${{ matrix.exp.tag }}
+          path: ml_export_${{ matrix.exp.tag }}
+
+
+
+  # ============================================
+  # Étape 7 — AGRÉGATION DES RÉSULTATS ML
+  # ============================================
+  aggregate-report:
+    name: 📊 Aggregate ML Results (Global Report)
+    needs: ml
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (required for parsing JSON)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Download all ML result artifacts
+        run: |
+          mkdir -p ml_artifacts
+
+          echo "🔍 Fetching artifact list from GitHub API..."
+          curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts \
+            > artifacts.json
+
+          echo "📄 List of artifacts:"
+          cat artifacts.json
+
+          echo "⬇️ Extracting ml-results-* artifacts..."
+          ARTIFACT_IDS=$(jq -r '.artifacts[] | select(.name | startswith("ml-results-")) | "\(.id):\(.name)"' artifacts.json)
+
+          if [ -z "$ARTIFACT_IDS" ]; then
+            echo "❌ No ml-results-* artifacts found!"
+            exit 1
+          fi
+
+          echo "$ARTIFACT_IDS" | while IFS=":" read -r ID NAME; do
+            echo "📦 Downloading artifact $NAME (ID: $ID)"
+            curl -L -o "$NAME.zip" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/artifacts/$ID/zip"
+
+            mkdir -p "ml_artifacts/$NAME"
+            unzip -qo "$NAME.zip" -d "ml_artifacts/$NAME"
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: List downloaded ML results
+        run: |
+          echo "📂 Downloaded ML results:"
+          ls -R ml_artifacts || echo "⚠️ No files found"
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install pandas jinja2 plotly matplotlib
+
+      - name: Generate Global ML Report
+        run: |
+          python .github/scripts/generate_global_report.py \
+            --input ml_artifacts \
+            --output ml_report_all.html \
+            --template templates/ml_report_global_template.html
+
+      - name: Upload Global ML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-report-global
+          path: ml_report_all.html
+
+      - name: Add Summary Info
+        run: |
+          echo "## Global ML Report generated 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "Download artifact: **ml-report-global**" >> $GITHUB_STEP_SUMMARY
+
+      - name: Assemble all ML assets into a single directory
+        run: |
+          echo "📦 Creating ml_all_assets/"
+          mkdir -p ml_all_assets
+
+          echo "📁 Copying all experiment artifacts..."
+          cp -r ml_artifacts/* ml_all_assets/
+
+          echo "📄 Copying global HTML report..."
+          cp ml_report_all.html ml_all_assets/
+
+          echo "📊 Copying global summary plots..."
+          cp -r global-plots ml_all_assets/
+
+          echo "📂 Contents of ml_all_assets:"
+          ls -R ml_all_assets
+
+      - name: Upload complete ML assets archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ml-all-assets
+          path: ml_all_assets
+
+
+
+  # ============================================
+  # Étape 8 — Publication GitHub Pages
+  # ============================================
+  publish-pages:
+    name: 🌐 Publish ML Global Report to GitHub Pages
+    needs: aggregate-report
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download global report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ml-report-global
+          path: public
+
+      - name: Disable Jekyll
+        run: echo "" > public/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
