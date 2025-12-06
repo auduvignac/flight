@@ -178,6 +178,94 @@ def collect_experiments(input_dir, experiments_meta, top_k=10):
 
 
 # -------------------------------------------------------------------
+# Global summary plots
+# -------------------------------------------------------------------
+def generate_global_plots(experiments, out_dir):
+    os.makedirs(out_dir, exist_ok=True)
+
+    rows = []
+    for exp in experiments:
+        rows.append({
+            "ds": exp["ds"],
+            "th": exp["th"],
+            "origin": exp["origin"],
+            "dest": exp["dest"],
+            "accuracy": exp["metrics"].get("accuracy")
+        })
+
+    df = pd.DataFrame(rows)
+
+    # -------------------- 1. origin plot --------------------
+    df1 = df[(df.ds == "D2") & (df.th == 60) & (df.dest == 0)]
+    df1 = df1.sort_values("origin")
+
+    plt.figure(figsize=(7,5))
+    plt.plot(df1.origin, df1.accuracy, marker="o")
+    plt.xlabel("Fenêtre temporelle départ (origin h)")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy vs origin — D2, th=60, dest=0")
+    plt.grid(True)
+    plot1 = os.path.join(out_dir, "accuracy_vs_origin.png")
+    plt.savefig(plot1, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # -------------------- 2. dest plot --------------------
+    df2 = df[(df.ds == "D2") & (df.th == 60) & (df.origin == 0)]
+    df2 = df2.sort_values("dest")
+
+    plt.figure(figsize=(7,5))
+    plt.plot(df2.dest, df2.accuracy, marker="o")
+    plt.xlabel("Fenêtre temporelle arrivée (dest h)")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy vs dest — D2, th=60, origin=0")
+    plt.grid(True)
+    plot2 = os.path.join(out_dir, "accuracy_vs_dest.png")
+    plt.savefig(plot2, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # -------------------- 3. threshold plot --------------------
+    df3 = df[(df.ds == "D2") & (df.origin == 7) & (df.dest == 7)]
+    df3 = df3.sort_values("th")
+
+    plt.figure(figsize=(7,5))
+    plt.plot(df3.th, df3.accuracy, marker="o")
+    plt.xlabel("Seuil (minutes)")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy vs threshold — D2, origin=7, dest=7")
+    plt.grid(True)
+    plot3 = os.path.join(out_dir, "accuracy_vs_th.png")
+    plt.savefig(plot3, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # -------------------- 4. dataset plot --------------------
+    df4 = df[(df.origin == 7) & (df.dest == 7) & (df.th == 60)]
+    df4 = df4.sort_values("ds")
+
+    plt.figure(figsize=(7,5))
+    plt.plot(df4.ds, df4.accuracy, marker="o")
+    plt.xlabel("Dataset")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy vs dataset — origin=7, dest=7, th=60")
+    plt.grid(True)
+    plot4 = os.path.join(out_dir, "accuracy_vs_dataset.png")
+    plt.savefig(plot4, dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print("📊 Global plots generated:")
+    print(" -", plot1)
+    print(" -", plot2)
+    print(" -", plot3)
+    print(" -", plot4)
+
+    return {
+        "accuracy_vs_origin": plot1,
+        "accuracy_vs_dest": plot2,
+        "accuracy_vs_th": plot3,
+        "accuracy_vs_ds": plot4
+    }
+
+
+# -------------------------------------------------------------------
 # Render HTML using Jinja2
 # -------------------------------------------------------------------
 def render_html(experiments, template_path, output_path):
@@ -208,6 +296,9 @@ def main():
 
     if not experiments:
         raise RuntimeError("❌ No experiment results found.")
+
+    # NEW: global plots
+    generate_global_plots(experiments, out_dir="global-plots")
 
     render_html(experiments, args.template, args.output)
 

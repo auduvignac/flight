@@ -444,6 +444,9 @@ jobs:
           echo "📄 Copying global HTML report..."
           cp ml_report_all.html ml_all_assets/
 
+          echo "📊 Copying global summary plots..."
+          cp -r global-plots ml_all_assets/
+
           echo "📂 Contents of ml_all_assets:"
           ls -R ml_all_assets
 
